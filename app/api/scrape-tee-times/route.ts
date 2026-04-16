@@ -1,318 +1,145 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chromium } from "playwright";
 import { createClient } from "@/utils/supabase/server";
-import { ScrapedTeeTime } from "@/lib/types";
 
-const COURSES = [
-  {
-    id: "chaska",
-    name: "Chaska Town Course",
-    url: "https://chaska.cps.golf/onlineresweb/m/search-teetime/default",
-    type: "cps",
-  },
-  {
-    id: "pioneer",
-    name: "Pioneer Creek Country Club",
-    url: "https://www.pioneercreek.com/pioneercreek.cps.golf",
-    type: "cps",
-  },
-  {
-    id: "braemar",
-    name: "Braemar Golf Club",
-    url: "https://foreupsoftware.com/index.php/booking/21445/7829",
-    type: "foreup",
-  },
-];
-
-async function scrapeCPSCourse(
-  page: any,
-  courseUrl: string,
-  dateStr: string,
-  courseId: string
-): Promise<ScrapedTeeTime[]> {
-  try {
-    await page.goto(courseUrl, { waitUntil: "networkidle" });
-
-    // Parse date to get month/day/year for CPS format
-    const [year, month, day] = dateStr.split("-");
-    const dateInput = `${month}/${day}/${year}`;
-
-    // Try to find and fill date input
-    const dateInputs = await page.$$('input[type="text"][placeholder*="Date"], input[type="date"]');
-    if (dateInputs.length > 0) {
-      await dateInputs[0].fill(dateInput);
-      await page.waitForTimeout(500);
-    }
-
-    // Wait for tee time results to load
-    await page.waitForSelector(
-      "[data-test*='time'], .time-slot, .slot, [class*='tee-time']",
-      { timeout: 5000 }
-    ).catch(() => null);
-
-    // Extract tee time information from the page
-    const teeTimes = await page.evaluate(() => {
-      const results: { time: string; available: boolean; price?: string; players?: number }[] = [];
-
-      // Try multiple selectors for tee times
-      const selectors = [
-        "[data-test*='time']",
-        ".time-slot",
-        ".slot",
-        "[class*='tee-time']",
-        "button[class*='time']",
-      ];
-
-      for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-        if (elements.length > 0) {
-          elements.forEach((el) => {
-            const text = el.textContent || "";
-            const timeMatch = text.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-            if (timeMatch) {
-              const hour = parseInt(timeMatch[1]);
-              const min = parseInt(timeMatch[2]);
-              const period = timeMatch[3]?.toLowerCase() || "";
-
-              // Convert to 24-hour format if needed
-              let finalHour = hour;
-              if (period === "pm" && hour !== 12) finalHour = hour + 12;
-              if (period === "am" && hour === 12) finalHour = 0;
-
-              results.push({
-                time: `${finalHour.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`,
-                available: !text.includes("booked") && !text.includes("closed"),
-                price: text.match(/\$(\d+(?:\.\d{2})?)/)?.[1],
-                players: 4,
-              });
-            }
-          });
-        }
-      }
-
-      return results;
-    });
-
-    // Convert to database format
-    const dbTeeTimes: ScrapedTeeTime[] = teeTimes
-      .filter((t: { time: string; available: boolean; price?: string; players?: number }) => t.available)
-      .map((t: { time: string; available: boolean; price?: string; players?: number }) => ({
-        course_id: courseId,
-        start_time: new Date(`${dateStr}T${t.time}:00`).toISOString(),
-        end_time: null,
-        players_needed: t.players || 4,
-        price_cents: t.price ? Math.round(parseFloat(t.price) * 100) : null,
-        status: "open",
-      }));
-
-    return dbTeeTimes;
-  } catch (error) {
-    console.error(`Error scraping CPS course:`, error);
-    return [];
-  }
+// ForeUp API response shape
+interface ForeUpTeeTime {
+  time: string; // "2026-04-17 10:50"
+  available_spots: number;
+  available_spots_18: number;
+  green_fee: number;
+  cart_fee: number;
+  course_id: number;
+  course_name: string;
+  schedule_id: number;
+  booking_class: string;
 }
 
-async function scrapeForeUpCourse(
-  page: any,
-  courseUrl: string,
+// Format date as MM-DD-YYYY for ForeUp
+function toForeUpDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-");
+  return `${month}-${day}-${year}`;
+}
+
+async function scrapeForeUp(
   dateStr: string,
-  courseId: string
-): Promise<ScrapedTeeTime[]> {
-  try {
-    await page.goto(courseUrl, { waitUntil: "networkidle" });
+  courseId: number,
+  scheduleId: number
+): Promise<ForeUpTeeTime[]> {
+  const date = toForeUpDate(dateStr);
+  const url = new URL("https://foreupsoftware.com/index.php/api/booking/times");
+  url.searchParams.set("time", "all");
+  url.searchParams.set("date", date);
+  url.searchParams.set("holes", "18");
+  url.searchParams.set("players", "0");
+  url.searchParams.set("booking_class", "0");
+  url.searchParams.set("schedule_id", String(scheduleId));
+  url.searchParams.set("course_id", String(courseId));
+  url.searchParams.set("api_key", "no_limits");
 
-    // Try to interact with date picker
-    const dateButtons = await page.$$("button[class*='date'], [class*='date-picker'] button");
-    if (dateButtons.length > 0) {
-      await dateButtons[0].click();
-      await page.waitForTimeout(300);
-    }
+  const res = await fetch(url.toString(), {
+    headers: {
+      "x-requested-with": "XMLHttpRequest",
+      "Accept": "application/json",
+    },
+    next: { revalidate: 300 }, // cache 5 min
+  });
 
-    // Extract available times
-    const teeTimes = await page.evaluate(() => {
-      const results: { time: string | null; available: boolean; price?: string }[] = [];
-
-      // ForeUp typically uses specific class patterns
-      const timeElements = document.querySelectorAll(
-        "[class*='time'], [class*='slot'], [data-time]"
-      );
-
-      timeElements.forEach((el) => {
-        const text = el.textContent || "";
-        const timeAttr = el.getAttribute("data-time");
-        const timeMatch =
-          timeAttr || text.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-
-        if (timeMatch) {
-          results.push({
-            time: typeof timeMatch === "string" ? timeMatch : null,
-            available: !el.classList.contains("unavailable"),
-            price: text.match(/\$(\d+(?:\.\d{2})?)/)?.[1],
-          });
-        }
-      });
-
-      return results;
-    });
-
-    const dbTeeTimes: ScrapedTeeTime[] = teeTimes
-      .filter((t: { time: string | null; available: boolean; price?: string }) => t.available && t.time)
-      .map((t: { time: string | null; available: boolean; price?: string }) => ({
-        course_id: courseId,
-        start_time: new Date(`${dateStr}T${t.time}:00`).toISOString(),
-        end_time: null,
-        players_needed: 4,
-        price_cents: t.price ? Math.round(parseFloat(t.price) * 100) : null,
-        status: "open",
-      }));
-
-    return dbTeeTimes;
-  } catch (error) {
-    console.error(`Error scraping ForeUp course:`, error);
-    return [];
-  }
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const date = searchParams.get("date"); // YYYY-MM-DD
-  const startHour = parseInt(searchParams.get("startHour") || "6");
-  const endHour = parseInt(searchParams.get("endHour") || "18");
+  const { searchParams } = request.nextUrl;
+  const date = searchParams.get("date");
+  const startHour = parseInt(searchParams.get("startHour") ?? "6");
+  const endHour = parseInt(searchParams.get("endHour") ?? "18");
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json(
-      { error: "Invalid date format. Use YYYY-MM-DD" },
+      { error: "Invalid date. Use YYYY-MM-DD" },
       { status: 400 }
     );
   }
 
-  let browser: any = null;
   try {
-    // Get golf courses from Supabase
     const supabase = await createClient();
-    const { data: golfCourses, error: coursesError } = await supabase
+
+    // Load courses from DB
+    const { data: courses, error } = await supabase
       .from("golf_courses")
       .select("*");
+    if (error) throw error;
 
-    if (coursesError) throw coursesError;
+    const results: any[] = [];
 
-    // Try to launch Playwright (may fail in serverless)
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (playwrightError) {
-      console.warn("Playwright not available in serverless environment");
-      // Return mock data for demo purposes
-      return NextResponse.json({
-        success: true,
-        date,
-        tee_times: golfCourses?.map((course: any, idx: number) => ({
-          id: `demo-${idx}-${date}`,
-          course_id: course.id,
-          course: course,
-          start_time: new Date(`${date}T${(6 + idx * 2).toString().padStart(2, "0")}:00:00Z`).toISOString(),
-          end_time: null,
-          players_needed: 4,
-          price_cents: 4500 + idx * 500,
-          status: "open",
-          created_at: new Date().toISOString(),
-        })) || [],
-        note: "Demo data - Playwright not available in this environment",
-      });
-    }
+    for (const course of courses ?? []) {
+      // Only ForeUp courses have a working unauthenticated API
+      if (course.booking_url?.includes("foreupsoftware.com")) {
+        // Extract course_id and schedule_id from booking URL
+        // URL pattern: /booking/{course_id}/{schedule_id}
+        const match = course.booking_url.match(/\/booking\/(\d+)\/(\d+)/);
+        if (!match) continue;
 
-    const context = await browser.newContext();
-    const page = await context.newPage();
+        const courseId = parseInt(match[1]);
+        const scheduleId = parseInt(match[2]);
 
-    let allTeeTimes: ScrapedTeeTime[] = [];
+        const slots = await scrapeForeUp(date, courseId, scheduleId);
 
-    // Scrape each course
-    for (const course of COURSES) {
-      try {
-        const courseDb = golfCourses?.find((c: any) =>
-          c.name.toLowerCase().includes(course.name.split(" ")[0].toLowerCase())
-        );
-        const courseId = courseDb?.id || course.id;
+        for (const slot of slots) {
+          // Parse hour from "YYYY-MM-DD HH:MM"
+          const hour = parseInt(slot.time.split(" ")[1]?.split(":")[0] ?? "0");
+          if (hour < startHour || hour >= endHour) continue;
+          if (slot.available_spots < 1) continue;
 
-        let teeTimes: ScrapedTeeTime[] = [];
-
-        if (course.type === "cps") {
-          teeTimes = await scrapeCPSCourse(
-            page,
-            course.url,
-            date,
-            courseId
-          );
-        } else if (course.type === "foreup") {
-          teeTimes = await scrapeForeUpCourse(
-            page,
-            course.url,
-            date,
-            courseId
-          );
+          results.push({
+            id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
+            course_id: course.id,
+            course,
+            start_time: new Date(slot.time).toISOString(),
+            end_time: null,
+            players_needed: slot.available_spots,
+            price_cents: Math.round((slot.green_fee + slot.cart_fee) * 100),
+            status: "open",
+            created_at: new Date().toISOString(),
+            booking_url: course.booking_url,
+          });
         }
-
-        allTeeTimes = allTeeTimes.concat(teeTimes);
-      } catch (courseError) {
-        console.error(`Error scraping ${course.name}:`, courseError);
-        // Continue with next course
+      } else {
+        // CPS Golf courses — direct booking link (no public API available)
+        // Show a placeholder so the course appears in results
+        const hour = startHour;
+        if (hour >= startHour && hour < endHour) {
+          results.push({
+            id: `${course.id}-cps`,
+            course_id: course.id,
+            course,
+            start_time: new Date(`${date}T${String(startHour).padStart(2, "0")}:00:00`).toISOString(),
+            end_time: null,
+            players_needed: 4,
+            price_cents: null,
+            status: "open",
+            created_at: new Date().toISOString(),
+            booking_url: course.booking_url,
+            cps_direct: true, // flag to show "Book Direct" instead of price
+          });
+        }
       }
     }
 
-    // Filter by time range
-    const filteredTeeTimes = allTeeTimes.filter((t) => {
-      const teeHour = new Date(t.start_time).getHours();
-      return teeHour >= startHour && teeHour < endHour;
+    // Sort: real prices first, then by time
+    results.sort((a, b) => {
+      if (a.cps_direct && !b.cps_direct) return 1;
+      if (!a.cps_direct && b.cps_direct) return -1;
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
     });
 
-    // Upsert into database
-    if (filteredTeeTimes.length > 0) {
-      // Delete old tee times for this date range to avoid duplicates
-      const startDateTime = new Date(`${date}T00:00:00Z`).toISOString();
-      const endDateTime = new Date(`${date}T23:59:59Z`).toISOString();
-
-      await supabase
-        .from("tee_times")
-        .delete()
-        .gte("start_time", startDateTime)
-        .lte("start_time", endDateTime);
-
-      // Insert new ones
-      const { error: insertError } = await supabase
-        .from("tee_times")
-        .insert(filteredTeeTimes);
-
-      if (insertError) throw insertError;
-    }
-
-    // Fetch from database with course info
-    const { data: dbTeeTimes, error: fetchError } = await supabase
-      .from("tee_times")
-      .select("*, course:golf_courses(*)")
-      .eq("status", "open")
-      .gte("start_time", `${date}T00:00:00Z`)
-      .lte("start_time", `${date}T23:59:59Z`)
-      .gte("start_time", `${date}T${startHour.toString().padStart(2, "0")}:00:00Z`)
-      .lte("start_time", `${date}T${endHour.toString().padStart(2, "0")}:00:00Z`)
-      .order("start_time");
-
-    if (fetchError) throw fetchError;
-
-    return NextResponse.json({
-      success: true,
-      date,
-      tee_times: dbTeeTimes || [],
-      total: (dbTeeTimes || []).length,
-    });
-  } catch (error) {
-    console.error("Scraper error:", error);
+    return NextResponse.json({ success: true, date, tee_times: results });
+  } catch (err) {
+    console.error("Scraper error:", err);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Scraping failed",
-        tee_times: [],
-      },
+      { error: err instanceof Error ? err.message : "Failed to fetch tee times" },
       { status: 500 }
     );
-  } finally {
-    if (browser) await browser.close();
   }
 }

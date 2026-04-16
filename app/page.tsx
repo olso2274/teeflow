@@ -3,44 +3,32 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
+import { useRouter } from "next/navigation";
 import SearchForm from "./components/SearchForm";
-import ResultsList from "./components/ResultsList";
-import LoadingSpinner from "./components/LoadingSpinner";
-import { ResultTeeTime } from "@/lib/types";
+import AuthModal from "./components/AuthModal";
 
 export default function Home() {
-  const [results, setResults] = useState<ResultTeeTime[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchPerformed, setSearchPerformed] = useState(false);
+  const router = useRouter();
+  const [showAuth, setShowAuth] = useState(false);
+  const [pendingSearch, setPendingSearch] = useState<{
+    date: Date;
+    startHour: number;
+    endHour: number;
+  } | null>(null);
 
-  const handleSearch = async (
-    date: Date,
-    startHour: number,
-    endHour: number
-  ) => {
-    setLoading(true);
-    setError(null);
-    setSearchPerformed(true);
+  // Called when user hits "Find Real Tee Times"
+  const handleSearch = (date: Date, startHour: number, endHour: number) => {
+    setPendingSearch({ date, startHour, endHour });
+    setShowAuth(true);
+  };
 
-    try {
-      const dateStr = format(date, "yyyy-MM-dd");
-      const response = await fetch(
-        `/api/scrape-tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to search for tee times");
-      }
-
-      const data = await response.json();
-      setResults(data.tee_times || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
+  // Called after successful auth
+  const handleAuthSuccess = () => {
+    if (!pendingSearch) return;
+    const dateStr = format(pendingSearch.date, "yyyy-MM-dd");
+    router.push(
+      `/tee-times?date=${dateStr}&startHour=${pendingSearch.startHour}&endHour=${pendingSearch.endHour}`
+    );
   };
 
   return (
@@ -60,98 +48,68 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Hero Section */}
+      <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="mb-8"
+          className="mb-10"
         >
           <h2 className="text-4xl font-bold text-gray-900 md:text-5xl">
-            When do you want to be golfing?
+            Hey Eddie, when do you<br className="hidden sm:block" /> want to be golfing?
           </h2>
-          <p className="mt-4 text-lg text-gray-600">
-            Find real tee times across Minnesota courses.
+          <p className="mt-4 text-lg text-gray-500">
+            Real live tee times from Chaska, Pioneer Creek &amp; Braemar.
           </p>
         </motion.section>
 
-        {/* Search Form */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="mb-12"
         >
           <SearchForm
             onSearch={handleSearch}
-            loading={loading}
+            loading={false}
             defaultDate={addDays(new Date(), 1)}
           />
         </motion.div>
 
-        {/* Error Message */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8 rounded-lg bg-red-50 p-4 text-red-800"
-          >
-            <p className="font-semibold">Error searching for tee times</p>
-            <p className="text-sm">{error}</p>
-          </motion.div>
-        )}
-
-        {/* Loading State */}
-        {loading && <LoadingSpinner />}
-
-        {/* Results */}
-        {searchPerformed && !loading && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            {results.length > 0 ? (
-              <>
-                <h3 className="mb-6 text-2xl font-bold text-gray-900">
-                  Available Tee Times ({results.length})
-                </h3>
-                <ResultsList results={results} />
-              </>
-            ) : (
-              <div className="rounded-lg border border-gray-200 bg-white p-8 text-center">
-                <p className="text-lg text-gray-600">
-                  No tee times available for your search. Try different dates or
-                  times.
-                </p>
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {/* Initial State Message */}
-        {!searchPerformed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center"
-          >
-            <div className="text-5xl mb-4">🏌️</div>
-            <p className="text-lg text-gray-600">
-              Select a date and time to find real tee times at local courses
-            </p>
-          </motion.div>
-        )}
+        {/* How it works */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="mt-12 grid gap-6 sm:grid-cols-3"
+        >
+          {[
+            { icon: "📅", title: "Pick a date & time", desc: "Choose when you want to play" },
+            { icon: "🔍", title: "We find real times", desc: "Live data pulled from course websites" },
+            { icon: "🏌️", title: "Book in one click", desc: "Direct link to the course booking page" },
+          ].map((step) => (
+            <div
+              key={step.title}
+              className="rounded-xl border border-gray-200 bg-white px-6 py-5 text-center"
+            >
+              <div className="text-3xl mb-2">{step.icon}</div>
+              <p className="font-semibold text-gray-800">{step.title}</p>
+              <p className="mt-1 text-sm text-gray-500">{step.desc}</p>
+            </div>
+          ))}
+        </motion.div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white py-6">
-        <div className="mx-auto max-w-7xl px-4 text-center text-sm text-gray-600 sm:px-6 lg:px-8">
-          <p>Powered by real golf course data • Updated live</p>
-        </div>
+      <footer className="border-t border-gray-200 bg-white py-6 text-center text-sm text-gray-400">
+        Live data from Chaska CPS · Pioneer Creek CPS · Braemar ForeUp
       </footer>
+
+      {/* Auth Modal */}
+      <AuthModal
+        open={showAuth}
+        onClose={() => setShowAuth(false)}
+        onSuccess={handleAuthSuccess}
+      />
     </div>
   );
 }
