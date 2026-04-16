@@ -35,10 +35,19 @@ export default function TeeTimeCard({ teeTime, index }: TeeTimeCardProps) {
     }
   };
 
-  const startTime = format(
-    parse(teeTime.start_time, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date()),
-    "h:mm a"
-  );
+  let startTime = "TBD";
+  try {
+    startTime = format(
+      parse(teeTime.start_time, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date()),
+      "h:mm a"
+    );
+  } catch (e) {
+    // Handle invalid date format
+    startTime = new Date(teeTime.start_time).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
 
   const price =
     teeTime.price_cents && teeTime.price_cents > 0
@@ -57,6 +66,8 @@ export default function TeeTimeCard({ teeTime, index }: TeeTimeCardProps) {
     },
   };
 
+  if (!teeTime) return null;
+
   return (
     <motion.div variants={itemVariants} className="h-full">
       <div
@@ -67,14 +78,14 @@ export default function TeeTimeCard({ teeTime, index }: TeeTimeCardProps) {
         {/* Header */}
         <div className="border-b border-gray-200 bg-gradient-to-r from-primary/10 to-accent/10 px-6 py-4">
           <h3 className="text-lg font-bold text-primary">
-            {teeTime.course?.name || "Golf Course"}
+            {teeTime.course?.name ?? "Golf Course"}
           </h3>
-          {teeTime.course?.address && (
+          {teeTime.course?.address ? (
             <p className="mt-1 flex items-center gap-2 text-sm text-gray-600">
               <MapPin className="h-4 w-4" />
-              {teeTime.course.address}
+              {String(teeTime.course.address)}
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* Content */}
