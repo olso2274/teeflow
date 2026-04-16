@@ -1,0 +1,37 @@
+# Supabase Local Development Configuration
+# See https://supabase.com/docs/guides/cli/local-development
+
+[api]
+# Port to use for the API
+port = 54321
+protocols = ["http"]
+# Disable API authentication for development (set to true for production-like testing)
+require_auth_for_jwt_validation = false
+
+[db]
+# Port to use for PostgreSQL
+port = 54322
+# Shadow database for migrations
+shadow_database_url = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+[studio]
+# Port to use for Supabase Studio
+port = 54323
+
+[inbucket]
+# Port to use for email testing
+smtp_port = 54324
+pop3_port = 54325
+http_port = 54326
+
+[vector]
+enabled = false
+
+[realtime]
+enabled = true
+max_concurrent_users = 200
+max_event_channels = 128
+max_chained_pushes = 128
+max_joins_per_second = 500
+max_bytes_per_second = 40000
+log_level = "info"
