@@ -424,14 +424,23 @@ function TeeTimeCard({
   teeTime: TeeTimeResult;
   index: number;
 }) {
+  // Times are in course local time (no timezone offset)
+  // "2026-04-17T10:50:00" → parse without TZ conversion
   const timeStr = (() => {
     try {
+      // Extract HH:MM directly from the string to avoid any TZ issues
+      const timePart = teeTime.start_time.split("T")[1];
+      if (timePart) {
+        const [hStr, mStr] = timePart.split(":");
+        const h = parseInt(hStr);
+        const m = mStr ?? "00";
+        const ampm = h >= 12 ? "PM" : "AM";
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${h12}:${m} ${ampm}`;
+      }
       return format(parseISO(teeTime.start_time), "h:mm a");
     } catch {
-      return new Date(teeTime.start_time).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      return teeTime.start_time;
     }
   })();
 

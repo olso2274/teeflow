@@ -60,7 +60,7 @@ async function scrapeForeUp(
         "x-requested-with": "XMLHttpRequest",
         Accept: "application/json",
       },
-      next: { revalidate: 300 },
+      next: { revalidate: 60 },
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -148,6 +148,10 @@ export async function GET(request: NextRequest) {
         if (hour < startHour || hour >= endHour) continue;
         if (slot.available_spots < 1) continue;
 
+        // Keep time as-is from ForeUp (course local time, no TZ conversion)
+        // "2026-04-17 10:50" → "2026-04-17T10:50:00" (treated as local)
+        const localTime = slot.time.replace(" ", "T") + ":00";
+
         courseResults.push({
           id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
           course_id: course.id,
@@ -159,9 +163,9 @@ export async function GET(request: NextRequest) {
             lng: course.lng,
             booking_url: course.booking_url,
           },
-          start_time: new Date(slot.time).toISOString(),
+          start_time: localTime,
           players_needed: slot.available_spots,
-          price_cents: Math.round((slot.green_fee + slot.cart_fee) * 100),
+          price_cents: Math.round(slot.green_fee * 100),
           status: "open",
           booking_url: course.booking_url,
         });
@@ -185,9 +189,7 @@ export async function GET(request: NextRequest) {
           lng: course.lng,
           booking_url: course.booking_url,
         },
-        start_time: new Date(
-          `${date}T${String(startHour).padStart(2, "0")}:00:00`
-        ).toISOString(),
+        start_time: `${date}T${String(startHour).padStart(2, "0")}:00:00`,
         players_needed: 4,
         price_cents: null,
         status: "open",
