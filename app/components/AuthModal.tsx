@@ -40,6 +40,7 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
           options: {
             shouldCreateUser: true,
             data: { name: name.trim(), phone: phone.trim() },
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
           },
         });
 
