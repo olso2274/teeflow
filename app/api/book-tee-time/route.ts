@@ -2,54 +2,67 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 export async function POST(request: NextRequest) {
-  const { tee_time_id } = await request.json();
-
-  if (!tee_time_id) {
-    return NextResponse.json(
-      { error: "Missing tee_time_id" },
-      { status: 400 }
-    );
-  }
-
   try {
+    const { tee_time_id, booking_url } = await request.json();
+
+    if (!tee_time_id && !booking_url) {
+      return NextResponse.json(
+        { error: "Missing tee_time_id or booking_url" },
+        { status: 400 }
+      );
+    }
+
     const supabase = await createClient();
 
-    // For demo purposes, we'll use a fixed user ID
-    // In production, you'd get this from the session
-    const userId = "demo-user-id";
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
 
-    // Create booking
+    if (!user || authError) {
+      return NextResponse.json(
+        { error: "You must be signed in to book a tee time." },
+        { status: 401 }
+      );
+    }
+
+    // For ForeUp/external bookings, we track the click and redirect
+    // The actual booking happens on the course's own booking system
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .insert([
         {
-          user_id: userId,
+          user_id: user.id,
           tee_time_id: tee_time_id,
           status: "confirmed",
         },
       ])
-      .select();
+      .select()
+      .single();
 
     if (bookingError) {
+      // If it's a unique violation, user already booked this time
+      if (bookingError.code === "23505") {
+        return NextResponse.json(
+          { error: "You already booked this tee time." },
+          { status: 409 }
+        );
+      }
       throw bookingError;
     }
 
-    // Update tee time status to booked
-    // (In a real system, you'd handle this with a trigger or separate logic)
-    await supabase
-      .from("tee_times")
-      .update({ status: "booked" })
-      .eq("id", tee_time_id);
-
     return NextResponse.json({
       success: true,
-      booking: booking?.[0],
+      booking,
+      redirect_url: booking_url ?? null,
     });
   } catch (error) {
     console.error("Booking error:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Booking failed",
+        error:
+          error instanceof Error ? error.message : "Booking failed",
       },
       { status: 500 }
     );

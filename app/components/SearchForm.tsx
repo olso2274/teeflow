@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DatePickerField from "./DatePickerField";
 import TimeRangeSelector from "./TimeRangeSelector";
@@ -20,9 +20,9 @@ export default function SearchForm({
   const [selectedDate, setSelectedDate] = useState<Date>(defaultDate);
   const [startHour, setStartHour] = useState(6);
   const [endHour, setEndHour] = useState(18);
-  const [preset, setPreset] = useState<"morning" | "midday" | "afternoon" | null>(
-    null
-  );
+  const [preset, setPreset] = useState<
+    "morning" | "midday" | "afternoon" | null
+  >(null);
 
   const handlePresetClick = (
     presetName: "morning" | "midday" | "afternoon"
@@ -50,32 +50,21 @@ export default function SearchForm({
     setEndHour(end);
   };
 
-  const handleSearch = () => {
-    onSearch(selectedDate, startHour, endHour);
-  };
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm md:p-8"
-    >
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Date Picker */}
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-gray-700">
-            Select Date
+    <div className="space-y-5">
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* Date */}
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium text-gray-700">
+            Date
           </label>
-          <DatePickerField
-            value={selectedDate}
-            onChange={setSelectedDate}
-          />
+          <DatePickerField value={selectedDate} onChange={setSelectedDate} />
         </div>
 
-        {/* Time Range */}
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-gray-700">
-            Time Range
+        {/* Time */}
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium text-gray-700">
+            Time window
           </label>
           <TimeRangeSelector
             preset={preset}
@@ -87,35 +76,14 @@ export default function SearchForm({
         </div>
       </div>
 
-      {/* Search Button */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="mt-6 flex gap-4"
+      <Button
+        onClick={() => onSearch(selectedDate, startHour, endHour)}
+        disabled={loading}
+        className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 rounded-xl gap-2"
       >
-        <Button
-          onClick={handleSearch}
-          disabled={loading}
-          className="flex-1 h-12 text-lg bg-primary hover:bg-primary/90"
-        >
-          {loading ? "Searching..." : "Find Real Tee Times"}
-        </Button>
-        <Button
-          onClick={() => {
-            handlePresetClick("morning");
-          }}
-          variant="outline"
-          className="h-12"
-          title="Refresh live tee times"
-        >
-          🔄
-        </Button>
-      </motion.div>
-
-      <p className="mt-4 text-xs text-gray-500">
-        ✨ Live data from Chaska CPS, Pioneer Creek, and Braemar Golf Club
-      </p>
-    </motion.div>
+        <Search className="h-4 w-4" />
+        {loading ? "Searching..." : "Find Tee Times"}
+      </Button>
+    </div>
   );
 }

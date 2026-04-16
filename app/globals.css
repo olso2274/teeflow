@@ -5,19 +5,19 @@
 :root {
   --border: 220 13% 91%;
   --input: 220 13% 91%;
-  --ring: 217.2 91.2% 59.8%;
+  --ring: 152 50% 24%;
   --background: 0 0% 100%;
-  --foreground: 220 90% 56%;
+  --foreground: 222 47% 11%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
   --muted: 210 40% 96%;
   --muted-foreground: 215.4 16.3% 46.9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 220 90% 56%;
+  --popover-foreground: 222 47% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 220 90% 56%;
-  --radius: 0.5rem;
-  --font-sans: system-ui, -apple-system, sans-serif;
+  --card-foreground: 222 47% 11%;
+  --radius: 0.625rem;
+  --font-sans: var(--font-sans, system-ui, -apple-system, sans-serif);
 }
 
 * {
@@ -28,30 +28,62 @@ body {
   @apply bg-background text-foreground;
 }
 
-/* Smooth scrolling */
 html {
   scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Golf theme customizations */
-.golf-green {
-  @apply bg-primary text-primary-foreground;
+/* Premium card elevation */
+.card-hover {
+  @apply border border-gray-200 rounded-2xl bg-white shadow-sm
+    transition-all duration-200 ease-out
+    hover:shadow-lg hover:shadow-gray-200/50 hover:-translate-y-0.5;
 }
 
-.golf-card {
-  @apply border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow;
-}
-
-/* Loading skeleton */
-@keyframes skeleton-loading {
-  0% {
-    background-color: hsl(200, 20%, 80%);
-  }
-  100% {
-    background-color: hsl(200, 20%, 95%);
-  }
+/* Skeleton loading */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
 }
 
 .skeleton {
-  animation: skeleton-loading 1s linear infinite alternate;
+  background: linear-gradient(
+    90deg,
+    hsl(210 40% 96%) 25%,
+    hsl(210 40% 92%) 50%,
+    hsl(210 40% 96%) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Glass morphism nav */
+.glass-nav {
+  @apply bg-white/80 backdrop-blur-lg border-b border-gray-200/60;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Sort pill active state */
+.sort-active {
+  @apply bg-white text-primary font-semibold shadow-sm;
+}
+
+/* Focus ring for accessibility */
+.focus-ring {
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2;
 }

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
 import { useRouter } from "next/navigation";
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, MapPin, Zap, MousePointerClick } from "lucide-react";
 import SearchForm from "./components/SearchForm";
 import AuthModal from "./components/AuthModal";
 import { createClient } from "@/utils/supabase/client";
@@ -28,10 +28,11 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Check for existing session on mount
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user) {
         const { data: profile } = await supabase
           .from("profiles")
@@ -54,10 +55,16 @@ export default function Home() {
     setCurrentUser(null);
   };
 
-  const handleSearch = (date: Date, startHour: number, endHour: number) => {
+  const goToResults = (date: Date, startHour: number, endHour: number) => {
     const dateStr = format(date, "yyyy-MM-dd");
+    router.push(
+      `/tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`
+    );
+  };
+
+  const handleSearch = (date: Date, startHour: number, endHour: number) => {
     if (currentUser) {
-      router.push(`/tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`);
+      goToResults(date, startHour, endHour);
     } else {
       setPendingSearch({ date, startHour, endHour });
       setShowAuth(true);
@@ -65,7 +72,9 @@ export default function Home() {
   };
 
   const handleAuthSuccess = async (_userId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase
         .from("profiles")
@@ -78,71 +87,99 @@ export default function Home() {
         email: user.email ?? "",
       });
     }
-    if (!pendingSearch) return;
-    const dateStr = format(pendingSearch.date, "yyyy-MM-dd");
-    router.push(
-      `/tee-times?date=${dateStr}&startHour=${pendingSearch.startHour}&endHour=${pendingSearch.endHour}`
-    );
+    if (pendingSearch) {
+      goToResults(pendingSearch.date, pendingSearch.startHour, pendingSearch.endHour);
+    }
   };
 
   const firstName = currentUser?.name?.split(" ")[0] ?? null;
 
   return (
-    <div className="min-h-screen">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-2"
-          >
-            <div className="text-3xl">⛳</div>
-            <h1 className="text-2xl font-bold text-primary">TeeFlow</h1>
+    <div className="min-h-screen flex flex-col">
+      {/* ── Nav ── */}
+      <header className="sticky top-0 z-50 glass-nav">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl" aria-hidden>
+              &#9971;
+            </span>
+            <span className="text-xl font-bold tracking-tight text-primary">
+              RubeGolf
+            </span>
+          </div>
 
-            {sessionChecked && currentUser && (
-              <div className="ml-auto flex items-center gap-4">
-                <div className="flex items-center gap-1.5 text-sm text-gray-600">
-                  <User className="h-4 w-4 text-primary" />
-                  <span className="font-medium">{currentUser.name}</span>
-                </div>
-                <button
-                  onClick={handleSignOut}
-                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600"
-                >
-                  <LogOut className="h-4 w-4" />
-                  Sign out
-                </button>
-              </div>
-            )}
-          </motion.div>
+          {sessionChecked && currentUser ? (
+            <div className="flex items-center gap-4">
+              <span className="hidden sm:flex items-center gap-1.5 text-sm text-gray-600">
+                <User className="h-3.5 w-3.5" />
+                {currentUser.name}
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Sign out</span>
+              </button>
+            </div>
+          ) : sessionChecked ? (
+            <button
+              onClick={() => setShowAuth(true)}
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary/90 transition"
+            >
+              Sign in
+            </button>
+          ) : null}
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-10"
-        >
-          <h2 className="text-4xl font-bold text-gray-900 md:text-5xl">
-            {firstName ? (
-              <>Hey {firstName}, when do you<br className="hidden sm:block" /> want to be golfing?</>
-            ) : (
-              <>When do you want to<br className="hidden sm:block" /> be golfing?</>
-            )}
-          </h2>
-          <p className="mt-4 text-lg text-gray-500">
-            Real live tee times from Chaska, Pioneer Creek &amp; Braemar.
-          </p>
-        </motion.section>
+      {/* ── Hero ── */}
+      <section className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-primary-700 to-emerald-950 py-16 sm:py-24">
+        {/* Decorative shapes */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-white/5" />
+          <div className="absolute -left-16 bottom-0 h-56 w-56 rounded-full bg-white/5" />
+          <div className="absolute right-1/4 top-1/3 h-40 w-40 rounded-full bg-emerald-500/10" />
+        </div>
 
+        <div className="relative mx-auto max-w-3xl px-4 text-center sm:px-6">
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl"
+          >
+            {firstName ? (
+              <>
+                {firstName}, your next round
+                <br className="hidden sm:block" /> starts here.
+              </>
+            ) : (
+              <>
+                Your next round
+                <br className="hidden sm:block" /> starts here.
+              </>
+            )}
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="mx-auto mt-5 max-w-xl text-lg text-emerald-200/90"
+          >
+            Real-time tee times from courses across Minnesota.
+            Find, compare, and book &mdash; all in one place.
+          </motion.p>
+        </div>
+      </section>
+
+      {/* ── Search Card (overlaps hero) ── */}
+      <div className="relative z-10 mx-auto -mt-8 w-full max-w-2xl px-4 sm:px-6">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+          className="rounded-2xl bg-white p-5 shadow-search sm:p-7"
         >
           <SearchForm
             onSearch={handleSearch}
@@ -150,37 +187,65 @@ export default function Home() {
             defaultDate={addDays(new Date(), 1)}
           />
         </motion.div>
+      </div>
 
-        {/* How it works */}
-        <motion.div
+      {/* ── How it works ── */}
+      <section className="mx-auto max-w-5xl px-4 pb-20 pt-16 sm:px-6">
+        <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="mt-12 grid gap-6 sm:grid-cols-3"
+          className="mb-8 text-center text-xs font-semibold uppercase tracking-widest text-gray-400"
         >
-          {[
-            { icon: "📅", title: "Pick a date & time", desc: "Choose when you want to play" },
-            { icon: "🔍", title: "We find real times", desc: "Live data pulled from course websites" },
-            { icon: "🏌️", title: "Book in one click", desc: "Direct link to the course booking page" },
-          ].map((step) => (
-            <div
-              key={step.title}
-              className="rounded-xl border border-gray-200 bg-white px-6 py-5 text-center"
-            >
-              <div className="text-3xl mb-2">{step.icon}</div>
-              <p className="font-semibold text-gray-800">{step.title}</p>
-              <p className="mt-1 text-sm text-gray-500">{step.desc}</p>
-            </div>
-          ))}
-        </motion.div>
-      </main>
+          How it works
+        </motion.p>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white py-6 text-center text-sm text-gray-400">
-        Live data from Chaska CPS · Pioneer Creek CPS · Braemar ForeUp
+        <div className="grid gap-6 sm:grid-cols-3">
+          {[
+            {
+              icon: <MapPin className="h-6 w-6 text-primary" />,
+              title: "Pick your day",
+              desc: "Choose a date and time window that works for your schedule.",
+            },
+            {
+              icon: <Zap className="h-6 w-6 text-primary" />,
+              title: "We search live data",
+              desc: "Real-time availability pulled directly from course booking systems.",
+            },
+            {
+              icon: <MousePointerClick className="h-6 w-6 text-primary" />,
+              title: "Book in one click",
+              desc: "Compare prices, check drive times, and book directly with the course.",
+            },
+          ].map((step, i) => (
+            <motion.div
+              key={step.title}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 + i * 0.08 }}
+              className="card-hover flex flex-col items-center px-6 py-8 text-center"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary-50">
+                {step.icon}
+              </div>
+              <h3 className="font-semibold text-gray-900">{step.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                {step.desc}
+              </p>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="mt-auto border-t border-gray-100 bg-gray-50/50 py-8 text-center">
+        <p className="text-xs text-gray-400">
+          Live data from Minnesota golf courses &middot; Built by{" "}
+          <span className="font-medium text-gray-500">RubeGolf</span>
+        </p>
       </footer>
 
-      {/* Auth Modal */}
+      {/* ── Auth Modal ── */}
       <AuthModal
         open={showAuth}
         onClose={() => setShowAuth(false)}

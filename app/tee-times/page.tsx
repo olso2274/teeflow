@@ -1,11 +1,26 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { format, parseISO } from "date-fns";
-import { MapPin, Clock, Users, Car, RefreshCw, ArrowLeft } from "lucide-react";
+import {
+  MapPin,
+  Clock,
+  Users,
+  Car,
+  RefreshCw,
+  ArrowLeft,
+  SlidersHorizontal,
+  ChevronDown,
+  ExternalLink,
+  DollarSign,
+  User,
+  LogOut,
+} from "lucide-react";
+import { createClient } from "@/utils/supabase/client";
 
+/* ── Types ── */
 interface Course {
   id: string;
   name: string;
@@ -28,17 +43,22 @@ interface TeeTimeResult {
   duration_minutes?: number;
 }
 
+type SortMode = "time" | "price" | "distance";
+
+/* ── Page wrapper ── */
 export default function TeeTimesPage() {
   return (
-    <Suspense fallback={<LoadingGrid />}>
+    <Suspense fallback={<LoadingShell />}>
       <TeeTimesContent />
     </Suspense>
   );
 }
 
+/* ── Main content ── */
 function TeeTimesContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const supabase = createClient();
 
   const date = searchParams.get("date") ?? "";
   const startHour = searchParams.get("startHour") ?? "6";
@@ -47,13 +67,41 @@ function TeeTimesContent() {
   const [teeTimes, setTeeTimes] = useState<TeeTimeResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [sortBy, setSortBy] = useState<SortMode>("time");
+  const [courseFilter, setCourseFilter] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
 
-  // Get user geolocation once
+  // User session
+  const [userName, setUserName] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        supabase
+          .from("profiles")
+          .select("name")
+          .eq("id", user.id)
+          .single()
+          .then(({ data }) => {
+            setUserName(data?.name ?? user.email?.split("@")[0] ?? null);
+          });
+      }
+    });
+  }, []);
+
+  // Geolocation
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (pos) =>
+          setUserLocation({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          }),
         () => null
       );
     }
@@ -71,9 +119,8 @@ function TeeTimesContent() {
       const data = await res.json();
       let times: TeeTimeResult[] = data.tee_times ?? [];
 
-      // If we have location, calculate distances
+      // Distance calc (non-blocking)
       if (userLocation && times.length > 0) {
-        const ids = times.map((t) => t.id);
         try {
           const distRes = await fetch("/api/calculate-distance", {
             method: "POST",
@@ -81,18 +128,19 @@ function TeeTimesContent() {
             body: JSON.stringify({
               userLat: userLocation.lat,
               userLng: userLocation.lng,
-              teeTimeIds: ids,
+              teeTimeIds: times.map((t) => t.id),
             }),
           });
           if (distRes.ok) {
             const distData = await distRes.json();
             times = times.map((t) => ({
               ...t,
-              duration_minutes: distData.distances?.[t.id]?.duration_minutes ?? null,
+              duration_minutes:
+                distData.distances?.[t.id]?.duration_minutes ?? undefined,
             }));
           }
         } catch {
-          // distance is optional, continue without it
+          /* distance is optional */
         }
       }
 
@@ -108,89 +156,274 @@ function TeeTimesContent() {
     fetchTeeTimes();
   }, [fetchTeeTimes]);
 
+  /* ── Derived data ── */
+  const courses = useMemo(() => {
+    const map = new Map<string, string>();
+    teeTimes.forEach((t) => {
+      if (t.course?.name) map.set(t.course_id, t.course.name);
+    });
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [teeTimes]);
+
+  const sortedFiltered = useMemo(() => {
+    let result =
+      courseFilter === "all"
+        ? [...teeTimes]
+        : teeTimes.filter((t) => t.course_id === courseFilter);
+
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case "price":
+          return (a.price_cents ?? Infinity) - (b.price_cents ?? Infinity);
+        case "distance":
+          return (
+            (a.duration_minutes ?? Infinity) -
+            (b.duration_minutes ?? Infinity)
+          );
+        default:
+          return (
+            new Date(a.start_time).getTime() -
+            new Date(b.start_time).getTime()
+          );
+      }
+    });
+    return result;
+  }, [teeTimes, courseFilter, sortBy]);
+
   const displayDate = date
     ? format(parseISO(date), "EEEE, MMMM d, yyyy")
     : "";
 
-  const timeLabel = () => {
+  const timeLabel = (() => {
     const s = parseInt(startHour);
     const e = parseInt(endHour);
-    if (s === 6 && e === 10) return "Morning (6–10am)";
-    if (s === 10 && e === 14) return "Midday (10am–2pm)";
-    if (s === 14 && e === 18) return "Afternoon (2–6pm)";
-    return `${s}:00–${e}:00`;
+    if (s === 6 && e === 10) return "Morning";
+    if (s === 10 && e === 14) return "Midday";
+    if (s === 14 && e === 18) return "Afternoon";
+    return `${s}:00 \u2013 ${e}:00`;
+  })();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-green-50">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-4 sm:px-6">
+    <div className="min-h-screen bg-gray-50/50">
+      {/* ── Nav ── */}
+      <header className="sticky top-0 z-40 glass-nav">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
           <button
             onClick={() => router.push("/")}
-            className="flex items-center gap-1 text-sm text-gray-500 hover:text-primary"
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary transition"
           >
-            <ArrowLeft className="h-4 w-4" /> Back
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Search</span>
           </button>
+
           <div className="flex items-center gap-2">
-            <span className="text-2xl">⛳</span>
-            <h1 className="text-xl font-bold text-primary">TeeFlow</h1>
+            <span className="text-xl" aria-hidden>
+              &#9971;
+            </span>
+            <span className="text-lg font-bold tracking-tight text-primary">
+              RubeGolf
+            </span>
           </div>
-          <button
-            onClick={fetchTeeTimes}
-            disabled={loading}
-            className="ml-auto flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={fetchTeeTimes}
+              disabled={loading}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+              />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            {userName && (
+              <>
+                <span className="hidden md:flex items-center gap-1.5 text-sm text-gray-500">
+                  <User className="h-3.5 w-3.5" />
+                  {userName}
+                </span>
+                <button
+                  onClick={handleSignOut}
+                  className="text-gray-400 hover:text-gray-600 transition"
+                  title="Sign out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {/* Date/time summary */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <h2 className="text-3xl font-bold text-gray-900">{displayDate}</h2>
-          <p className="mt-1 text-gray-500">{timeLabel()}</p>
-        </motion.div>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        {/* ── Summary bar ── */}
+        <div className="mb-6">
+          <motion.h2
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-2xl font-bold text-gray-900 sm:text-3xl"
+          >
+            {displayDate}
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.05 }}
+            className="mt-1 text-sm text-gray-500"
+          >
+            {timeLabel}{" "}
+            {!loading && (
+              <span>
+                &middot;{" "}
+                <span className="font-medium text-gray-700">
+                  {sortedFiltered.length}
+                </span>{" "}
+                tee {sortedFiltered.length === 1 ? "time" : "times"} found
+              </span>
+            )}
+          </motion.p>
+        </div>
 
+        {/* ── Controls ── */}
+        {!loading && teeTimes.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.08 }}
+            className="mb-6 flex flex-wrap items-center gap-3"
+          >
+            {/* Sort pills */}
+            <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1">
+              {(
+                [
+                  { key: "time", label: "Earliest", icon: Clock },
+                  { key: "price", label: "Price", icon: DollarSign },
+                  { key: "distance", label: "Nearest", icon: Car },
+                ] as const
+              ).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setSortBy(key)}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition ${
+                    sortBy === key
+                      ? "sort-active"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Course filter */}
+            {courses.length > 1 && (
+              <div className="relative">
+                <button
+                  onClick={() => setFilterOpen(!filterOpen)}
+                  className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 transition"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  {courseFilter === "all"
+                    ? "All courses"
+                    : courses.find(([id]) => id === courseFilter)?.[1] ??
+                      "Filter"}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+
+                <AnimatePresence>
+                  {filterOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 4 }}
+                      className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white py-1 shadow-lg"
+                    >
+                      <button
+                        onClick={() => {
+                          setCourseFilter("all");
+                          setFilterOpen(false);
+                        }}
+                        className={`w-full px-4 py-2 text-left text-sm transition hover:bg-gray-50 ${
+                          courseFilter === "all"
+                            ? "font-semibold text-primary"
+                            : "text-gray-600"
+                        }`}
+                      >
+                        All courses
+                      </button>
+                      {courses.map(([id, name]) => (
+                        <button
+                          key={id}
+                          onClick={() => {
+                            setCourseFilter(id);
+                            setFilterOpen(false);
+                          }}
+                          className={`w-full px-4 py-2 text-left text-sm transition hover:bg-gray-50 ${
+                            courseFilter === id
+                              ? "font-semibold text-primary"
+                              : "text-gray-600"
+                          }`}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* ── Error ── */}
         {error && (
-          <div className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-red-700">
+          <div className="mb-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
           </div>
         )}
 
+        {/* ── Results ── */}
         {loading ? (
           <LoadingGrid />
-        ) : teeTimes.length === 0 ? (
+        ) : sortedFiltered.length === 0 ? (
           <EmptyState onRefresh={fetchTeeTimes} />
         ) : (
-          <>
-            <p className="mb-4 text-sm text-gray-500">
-              {teeTimes.length} tee {teeTimes.length === 1 ? "time" : "times"} found
-            </p>
-            <motion.div
-              initial="hidden"
-              animate="show"
-              variants={{ show: { transition: { staggerChildren: 0.07 } }, hidden: {} }}
-              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              {teeTimes.map((tt, i) => (
-                <TeeTimeCard key={tt.id} teeTime={tt} index={i} />
-              ))}
-            </motion.div>
-          </>
+          <motion.div
+            initial="hidden"
+            animate="show"
+            variants={{
+              show: { transition: { staggerChildren: 0.04 } },
+              hidden: {},
+            }}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {sortedFiltered.map((tt, i) => (
+              <TeeTimeCard key={tt.id} teeTime={tt} index={i} />
+            ))}
+          </motion.div>
         )}
       </main>
     </div>
   );
 }
 
-function TeeTimeCard({ teeTime, index }: { teeTime: TeeTimeResult; index: number }) {
+/* ═══════════════════════════════════════════
+   Tee Time Card
+   ═══════════════════════════════════════════ */
+function TeeTimeCard({
+  teeTime,
+  index,
+}: {
+  teeTime: TeeTimeResult;
+  index: number;
+}) {
   const timeStr = (() => {
     try {
       return format(parseISO(teeTime.start_time), "h:mm a");
@@ -216,69 +449,107 @@ function TeeTimeCard({ teeTime, index }: { teeTime: TeeTimeResult; index: number
   return (
     <motion.div
       variants={{
-        hidden: { opacity: 0, y: 20 },
-        show: { opacity: 1, y: 0, transition: { duration: 0.3, delay: index * 0.04 } },
+        hidden: { opacity: 0, y: 16 },
+        show: {
+          opacity: 1,
+          y: 0,
+          transition: { duration: 0.25, delay: index * 0.03 },
+        },
       }}
-      className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+      className="card-hover flex flex-col overflow-hidden"
     >
-      {/* Card header */}
-      <div className="rounded-t-xl bg-gradient-to-r from-primary/10 to-accent/10 px-5 py-4">
-        <h3 className="font-bold text-primary">{teeTime.course?.name}</h3>
-        {teeTime.course?.address && (
-          <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
-            <MapPin className="h-3 w-3" />
-            {teeTime.course.address}
-          </p>
+      {/* Header band */}
+      <div className="flex items-center justify-between bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-3.5">
+        <div className="min-w-0">
+          <h3 className="truncate font-semibold text-gray-900 text-sm">
+            {teeTime.course?.name}
+          </h3>
+          {teeTime.course?.address && (
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 truncate">
+              <MapPin className="h-3 w-3 flex-shrink-0" />
+              {teeTime.course.address}
+            </p>
+          )}
+        </div>
+        {teeTime.cps_direct && (
+          <span className="ml-2 flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+            Direct
+          </span>
         )}
       </div>
 
-      {/* Card body */}
-      <div className="flex flex-1 flex-col gap-3 px-5 py-4">
-        {/* Time */}
-        <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-          <Clock className="h-5 w-5 text-primary" />
-          {timeStr}
+      {/* Body */}
+      <div className="flex flex-1 flex-col px-5 py-4">
+        {/* Time & Price row */}
+        <div className="flex items-baseline justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary" />
+            <span className="text-xl font-bold text-gray-900">{timeStr}</span>
+          </div>
+          {price ? (
+            <span className="text-lg font-bold text-primary">{price}</span>
+          ) : (
+            <span className="text-sm text-gray-400">Call for price</span>
+          )}
         </div>
 
-        {/* Stats row */}
-        <div className="flex gap-2">
-          <div className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gray-50 py-2 text-sm">
-            <Users className="h-4 w-4 text-gray-400" />
-            <span>{teeTime.players_needed} spots</span>
-          </div>
-          <div className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gray-50 py-2 text-sm font-semibold text-primary">
-            {price ? price : <span className="text-gray-400 font-normal">Call</span>}
-          </div>
-        </div>
-
-        {/* Distance */}
-        {teeTime.duration_minutes ? (
-          <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm">
-            <Car className="h-4 w-4 text-blue-500" />
-            <span className="font-medium text-blue-800">
-              {teeTime.duration_minutes} min drive
+        {/* Stats */}
+        <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
+          <span className="flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" />
+            {teeTime.players_needed} spot
+            {teeTime.players_needed !== 1 ? "s" : ""}
+          </span>
+          {teeTime.duration_minutes ? (
+            <span className="flex items-center gap-1">
+              <Car className="h-3.5 w-3.5" />
+              {teeTime.duration_minutes} min
             </span>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
-        {/* CPS direct notice */}
+        {/* CPS notice */}
         {teeTime.cps_direct && (
-          <p className="text-xs text-gray-400 text-center">
-            Live times available on course website
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Book directly on the course website for live availability.
           </p>
         )}
       </div>
 
       {/* Book button */}
-      <div className="border-t border-gray-100 px-5 py-3">
+      <div className="mt-auto border-t border-gray-100 px-5 py-3">
         <button
           onClick={handleBook}
-          className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-95"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98]"
         >
-          {teeTime.cps_direct ? "Book on Course Site →" : "Book Now →"}
+          {teeTime.cps_direct ? "View on Course Site" : "Book Now"}
+          <ExternalLink className="h-3.5 w-3.5" />
         </button>
       </div>
     </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Loading states
+   ═══════════════════════════════════════════ */
+function LoadingShell() {
+  return (
+    <div className="min-h-screen bg-gray-50/50">
+      <header className="glass-nav">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+          <div className="h-5 w-20 skeleton rounded" />
+          <div className="ml-auto h-8 w-24 skeleton rounded-lg" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <div className="h-8 w-64 skeleton rounded mb-2" />
+          <div className="h-4 w-40 skeleton rounded" />
+        </div>
+        <LoadingGrid />
+      </main>
+    </div>
   );
 }
 
@@ -286,11 +557,24 @@ function LoadingGrid() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {[...Array(6)].map((_, i) => (
-        <div key={i} className="rounded-xl border border-gray-200 bg-white p-5 animate-pulse">
-          <div className="mb-4 h-5 w-2/3 rounded bg-gray-200" />
-          <div className="mb-3 h-4 w-full rounded bg-gray-100" />
-          <div className="mb-3 h-4 w-1/2 rounded bg-gray-100" />
-          <div className="mt-4 h-10 w-full rounded-lg bg-gray-200" />
+        <div
+          key={i}
+          className="rounded-2xl border border-gray-200 bg-white overflow-hidden"
+        >
+          <div className="px-5 py-3.5">
+            <div className="h-4 w-3/4 skeleton rounded mb-2" />
+            <div className="h-3 w-1/2 skeleton rounded" />
+          </div>
+          <div className="px-5 py-4 space-y-3">
+            <div className="flex justify-between">
+              <div className="h-6 w-20 skeleton rounded" />
+              <div className="h-6 w-12 skeleton rounded" />
+            </div>
+            <div className="h-4 w-32 skeleton rounded" />
+          </div>
+          <div className="border-t border-gray-100 px-5 py-3">
+            <div className="h-10 w-full skeleton rounded-xl" />
+          </div>
         </div>
       ))}
     </div>
@@ -299,17 +583,20 @@ function LoadingGrid() {
 
 function EmptyState({ onRefresh }: { onRefresh: () => void }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-300 bg-white py-16 text-center">
-      <div className="text-5xl mb-4">🕳️</div>
-      <p className="text-lg font-semibold text-gray-700">No tee times found</p>
-      <p className="mt-1 text-sm text-gray-500">
-        Try a different date or time range, or refresh to check again.
+    <div className="rounded-2xl border-2 border-dashed border-gray-200 bg-white py-16 text-center">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100">
+        <Clock className="h-7 w-7 text-gray-400" />
+      </div>
+      <p className="text-lg font-semibold text-gray-800">No tee times found</p>
+      <p className="mx-auto mt-1 max-w-xs text-sm text-gray-500">
+        Try a different date, widen your time window, or refresh to check again.
       </p>
       <button
         onClick={onRefresh}
-        className="mt-6 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary/90"
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition"
       >
-        Refresh Tee Times
+        <RefreshCw className="h-4 w-4" />
+        Refresh
       </button>
     </div>
   );
