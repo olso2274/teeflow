@@ -28,26 +28,47 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
 
+  /* ── Load user on mount + listen for auth changes ── */
   useEffect(() => {
-    const checkSession = async () => {
+    const loadUser = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("name")
-          .eq("id", user.id)
-          .single();
-        setCurrentUser({
-          id: user.id,
-          name: profile?.name ?? user.email?.split("@")[0] ?? "Golfer",
-          email: user.email ?? "",
-        });
+        await setUserFromAuth(user);
       }
       setSessionChecked(true);
     };
-    checkSession();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const setUserFromAuth = async (user: any) => {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name")
+        .eq("id", user.id)
+        .single();
+      setCurrentUser({
+        id: user.id,
+        name: profile?.name ?? user.email?.split("@")[0] ?? "Golfer",
+        email: user.email ?? "",
+      });
+    };
+
+    loadUser();
+
+    // Listen for auth state changes (e.g. magic link in another tab)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        setUserFromAuth(session.user);
+      }
+      if (event === "SIGNED_OUT") {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleSignOut = async () => {
@@ -55,23 +76,35 @@ export default function Home() {
     setCurrentUser(null);
   };
 
-  const goToResults = (date: Date, startHour: number, endHour: number) => {
+  const buildSearchUrl = (date: Date, startHour: number, endHour: number) => {
     const dateStr = format(date, "yyyy-MM-dd");
-    router.push(
-      `/tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`
-    );
+    return `/tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`;
   };
 
   const handleSearch = (date: Date, startHour: number, endHour: number) => {
     if (currentUser) {
-      goToResults(date, startHour, endHour);
+      router.push(buildSearchUrl(date, startHour, endHour));
     } else {
+      // Persist search for magic-link flow (survives page reload)
+      const searchUrl = buildSearchUrl(date, startHour, endHour);
+      try {
+        sessionStorage.setItem("rubegolf_pending_search", searchUrl);
+      } catch {
+        /* no-op */
+      }
       setPendingSearch({ date, startHour, endHour });
       setShowAuth(true);
     }
   };
 
   const handleAuthSuccess = async (_userId: string) => {
+    // Clean up stored search
+    try {
+      sessionStorage.removeItem("rubegolf_pending_search");
+    } catch {
+      /* no-op */
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -87,8 +120,15 @@ export default function Home() {
         email: user.email ?? "",
       });
     }
+    setShowAuth(false);
     if (pendingSearch) {
-      goToResults(pendingSearch.date, pendingSearch.startHour, pendingSearch.endHour);
+      router.push(
+        buildSearchUrl(
+          pendingSearch.date,
+          pendingSearch.startHour,
+          pendingSearch.endHour
+        )
+      );
     }
   };
 
@@ -135,7 +175,6 @@ export default function Home() {
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-primary-700 to-emerald-950 py-16 sm:py-24">
-        {/* Decorative shapes */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-white/5" />
           <div className="absolute -left-16 bottom-0 h-56 w-56 rounded-full bg-white/5" />
@@ -167,8 +206,8 @@ export default function Home() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="mx-auto mt-5 max-w-xl text-lg text-emerald-200/90"
           >
-            Real-time tee times from courses across Minnesota.
-            Find, compare, and book &mdash; all in one place.
+            Real-time tee times from courses across Minnesota. Find, compare,
+            and book &mdash; all in one place.
           </motion.p>
         </div>
       </section>
