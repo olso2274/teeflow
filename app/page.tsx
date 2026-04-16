@@ -1,35 +1,91 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
 import { useRouter } from "next/navigation";
+import { LogOut, User } from "lucide-react";
 import SearchForm from "./components/SearchForm";
 import AuthModal from "./components/AuthModal";
+import { createClient } from "@/utils/supabase/client";
+
+interface CurrentUser {
+  id: string;
+  name: string;
+  email: string;
+}
 
 export default function Home() {
   const router = useRouter();
+  const supabase = createClient();
+
   const [showAuth, setShowAuth] = useState(false);
   const [pendingSearch, setPendingSearch] = useState<{
     date: Date;
     startHour: number;
     endHour: number;
   } | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Called when user hits "Find Real Tee Times"
-  const handleSearch = (date: Date, startHour: number, endHour: number) => {
-    setPendingSearch({ date, startHour, endHour });
-    setShowAuth(true);
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name")
+          .eq("id", user.id)
+          .single();
+        setCurrentUser({
+          id: user.id,
+          name: profile?.name ?? user.email?.split("@")[0] ?? "Golfer",
+          email: user.email ?? "",
+        });
+      }
+      setSessionChecked(true);
+    };
+    checkSession();
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
   };
 
-  // Called after successful auth
-  const handleAuthSuccess = () => {
+  const handleSearch = (date: Date, startHour: number, endHour: number) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    if (currentUser) {
+      router.push(`/tee-times?date=${dateStr}&startHour=${startHour}&endHour=${endHour}`);
+    } else {
+      setPendingSearch({ date, startHour, endHour });
+      setShowAuth(true);
+    }
+  };
+
+  const handleAuthSuccess = async (_userId: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name")
+        .eq("id", user.id)
+        .single();
+      setCurrentUser({
+        id: user.id,
+        name: profile?.name ?? user.email?.split("@")[0] ?? "Golfer",
+        email: user.email ?? "",
+      });
+    }
     if (!pendingSearch) return;
     const dateStr = format(pendingSearch.date, "yyyy-MM-dd");
     router.push(
       `/tee-times?date=${dateStr}&startHour=${pendingSearch.startHour}&endHour=${pendingSearch.endHour}`
     );
   };
+
+  const firstName = currentUser?.name?.split(" ")[0] ?? null;
 
   return (
     <div className="min-h-screen">
@@ -43,6 +99,22 @@ export default function Home() {
           >
             <div className="text-3xl">⛳</div>
             <h1 className="text-2xl font-bold text-primary">TeeFlow</h1>
+
+            {sessionChecked && currentUser && (
+              <div className="ml-auto flex items-center gap-4">
+                <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                  <User className="h-4 w-4 text-primary" />
+                  <span className="font-medium">{currentUser.name}</span>
+                </div>
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-600"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </div>
+            )}
           </motion.div>
         </div>
       </header>
@@ -56,7 +128,11 @@ export default function Home() {
           className="mb-10"
         >
           <h2 className="text-4xl font-bold text-gray-900 md:text-5xl">
-            Hey Eddie, when do you<br className="hidden sm:block" /> want to be golfing?
+            {firstName ? (
+              <>Hey {firstName}, when do you<br className="hidden sm:block" /> want to be golfing?</>
+            ) : (
+              <>When do you want to<br className="hidden sm:block" /> be golfing?</>
+            )}
           </h2>
           <p className="mt-4 text-lg text-gray-500">
             Real live tee times from Chaska, Pioneer Creek &amp; Braemar.
