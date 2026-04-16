@@ -186,7 +186,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let browser;
+  let browser: any = null;
   try {
     // Get golf courses from Supabase
     const supabase = await createClient();
@@ -197,7 +197,6 @@ export async function GET(request: NextRequest) {
     if (coursesError) throw coursesError;
 
     // Try to launch Playwright (may fail in serverless)
-    let browser;
     try {
       browser = await chromium.launch({ headless: true });
     } catch (playwrightError) {
