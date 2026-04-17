@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { useEffect, useState as useReactState, useCallback, useMemo, Suspense } from "react";
+const useState = useReactState;
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { format, parseISO } from "date-fns";
 import {
-  MapPin,
   Clock,
   Users,
   Car,
@@ -17,6 +17,8 @@ import {
   DollarSign,
   User,
   LogOut,
+  Star,
+  BookOpen,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -74,13 +76,17 @@ function TeeTimesContent() {
   const [sortBy, setSortBy] = useState<SortMode>("time");
   const [courseFilter, setCourseFilter] = useState("all");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [favoriteCourses, setFavoriteCourses] = useState<Set<string>>(new Set());
 
   // User session
+  const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
+        setUserId(user.id);
         supabase
           .from("profiles")
           .select("name")
@@ -88,6 +94,16 @@ function TeeTimesContent() {
           .single()
           .then(({ data }) => {
             setUserName(data?.name ?? user.email?.split("@")[0] ?? null);
+          });
+
+        // Load user's favorite courses
+        supabase
+          .from("favorite_courses")
+          .select("course_id")
+          .eq("user_id", user.id)
+          .then(({ data }) => {
+            const ids = new Set(data?.map((f) => f.course_id) ?? []);
+            setFavoriteCourses(ids);
           });
       }
     });
@@ -171,6 +187,11 @@ function TeeTimesContent() {
         ? [...teeTimes]
         : teeTimes.filter((t) => t.course_id === courseFilter);
 
+    // Filter by favorites if toggled
+    if (showFavoritesOnly) {
+      result = result.filter((t) => favoriteCourses.has(t.course_id));
+    }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price":
@@ -188,7 +209,7 @@ function TeeTimesContent() {
       }
     });
     return result;
-  }, [teeTimes, courseFilter, sortBy]);
+  }, [teeTimes, courseFilter, sortBy, showFavoritesOnly, favoriteCourses]);
 
   const displayDate = date
     ? format(parseISO(date), "EEEE, MMMM d, yyyy")
@@ -248,6 +269,13 @@ function TeeTimesContent() {
                   <User className="h-3.5 w-3.5" />
                   {userName}
                 </span>
+                <button
+                  onClick={() => router.push("/bookings")}
+                  className="text-gray-400 hover:text-gray-600 transition"
+                  title="My bookings"
+                >
+                  <BookOpen className="h-4 w-4" />
+                </button>
                 <button
                   onClick={handleSignOut}
                   className="text-gray-400 hover:text-gray-600 transition"
@@ -321,6 +349,21 @@ function TeeTimesContent() {
                 </button>
               ))}
             </div>
+
+            {/* Favorites toggle */}
+            {userId && (
+              <button
+                onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition ${
+                  showFavoritesOnly
+                    ? "sort-active"
+                    : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Star className={`h-3.5 w-3.5 ${showFavoritesOnly ? "fill-amber-500" : ""}`} />
+                <span className="hidden sm:inline">Favorites</span>
+              </button>
+            )}
 
             {/* Course filter */}
             {courses.length > 1 && (
@@ -405,7 +448,22 @@ function TeeTimesContent() {
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
             {sortedFiltered.map((tt, i) => (
-              <TeeTimeCard key={tt.id} teeTime={tt} index={i} />
+              <TeeTimeCard
+                key={tt.id}
+                teeTime={tt}
+                index={i}
+                userId={userId ?? undefined}
+                isFavorited={favoriteCourses.has(tt.course_id)}
+                onFavoriteChange={(courseId, isFav) => {
+                  const newFavs = new Set(favoriteCourses);
+                  if (isFav) {
+                    newFavs.add(courseId);
+                  } else {
+                    newFavs.delete(courseId);
+                  }
+                  setFavoriteCourses(newFavs);
+                }}
+              />
             ))}
           </motion.div>
         )}
@@ -420,9 +478,15 @@ function TeeTimesContent() {
 function TeeTimeCard({
   teeTime,
   index,
+  userId,
+  isFavorited = false,
+  onFavoriteChange,
 }: {
   teeTime: TeeTimeResult;
   index: number;
+  userId?: string;
+  isFavorited?: boolean;
+  onFavoriteChange?: (courseId: string, isFavorited: boolean) => void;
 }) {
   // Times are in course local time (no timezone offset)
   // "2026-04-17T10:50:00" → parse without TZ conversion
@@ -449,9 +513,70 @@ function TeeTimeCard({
       ? `$${(teeTime.price_cents / 100).toFixed(0)}`
       : null;
 
-  const handleBook = () => {
-    if (teeTime.booking_url) {
+  const [isFav, setIsFav] = useState(isFavorited);
+  const [_bookingLoading, setBookingLoading] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const supabase = createClient();
+
+  const handleBook = async () => {
+    if (!teeTime.booking_url) return;
+
+    setBookingLoading(true);
+    try {
+      // Log booking click if user is logged in
+      if (userId) {
+        await fetch("/api/book-tee-time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tee_time_id: teeTime.id,
+            course_id: teeTime.course_id,
+            course_name: teeTime.course?.name,
+            tee_time_display: timeStr,
+            price_cents: teeTime.price_cents,
+            booking_url: teeTime.booking_url,
+          }),
+        });
+      }
+
+      // Open course booking page
       window.open(teeTime.booking_url, "_blank", "noopener,noreferrer");
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const handleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!userId) return;
+
+    setFavoriteLoading(true);
+    try {
+      if (isFav) {
+        const { error } = await supabase
+          .from("favorite_courses")
+          .delete()
+          .eq("user_id", userId)
+          .eq("course_id", teeTime.course_id);
+
+        if (error) throw error;
+        setIsFav(false);
+        onFavoriteChange?.(teeTime.course_id, false);
+      } else {
+        const { error } = await supabase.from("favorite_courses").insert({
+          user_id: userId,
+          course_id: teeTime.course_id,
+        });
+
+        if (error && error.code !== "23505") throw error;
+        setIsFav(true);
+        onFavoriteChange?.(teeTime.course_id, true);
+      }
+    } catch (err) {
+      console.error("Favorite toggle failed:", err);
+    } finally {
+      setFavoriteLoading(false);
     }
   };
 
@@ -468,18 +593,33 @@ function TeeTimeCard({
       className="card-hover flex flex-col overflow-hidden"
     >
       {/* Header band */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-3.5">
-        <div className="min-w-0">
+      <div className="flex items-start justify-between bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-3.5">
+        <div className="min-w-0 flex-1">
           <h3 className="truncate font-semibold text-gray-900 text-sm">
             {teeTime.course?.name}
           </h3>
           {teeTime.course?.address && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 truncate">
-              <MapPin className="h-3 w-3 flex-shrink-0" />
-              {teeTime.course.address}
+              📍 {teeTime.course.address}
             </p>
           )}
         </div>
+
+        {userId && (
+          <button
+            onClick={handleFavorite}
+            disabled={favoriteLoading}
+            className="ml-2 flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition disabled:opacity-50"
+            title={isFav ? "Remove favorite" : "Add to favorites"}
+          >
+            <Star
+              className={`h-4 w-4 transition ${
+                isFav ? "fill-amber-500 text-amber-500" : ""
+              }`}
+            />
+          </button>
+        )}
+
         {teeTime.cps_direct && (
           <span className="ml-2 flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
             Direct

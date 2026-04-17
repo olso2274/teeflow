@@ -2,148 +2,233 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { format, parse } from "date-fns";
-import { MapPin, Clock, DollarSign, Users, Car } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ResultTeeTime } from "@/lib/types";
+import { Clock, Users, Car, ExternalLink, Star } from "lucide-react";
+import { createClient } from "@/utils/supabase/client";
 
 interface TeeTimeCardProps {
-  teeTime: ResultTeeTime;
+  teeTime: {
+    id: string;
+    course_id: string;
+    course?: {
+      id: string;
+      name: string;
+      address: string;
+      lat: number;
+      lng: number;
+      booking_url: string;
+    };
+    start_time: string;
+    players_needed: number;
+    price_cents: number | null;
+    status: string;
+    booking_url: string;
+    cps_direct?: boolean;
+    duration_minutes?: number;
+  };
   index: number;
+  userId?: string;
+  isFavorited?: boolean;
+  onFavoriteChange?: (courseId: string, isFavorited: boolean) => void;
 }
 
-export default function TeeTimeCard({ teeTime, index }: TeeTimeCardProps) {
-  const [booking, setBooking] = useState(false);
-  const [booked, setBooked] = useState(false);
+export default function TeeTimeCard({
+  teeTime,
+  index,
+  userId,
+  isFavorited = false,
+  onFavoriteChange,
+}: TeeTimeCardProps) {
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const [isFav, setIsFav] = useState(isFavorited);
+  const supabase = createClient();
 
-  const handleBooking = async () => {
-    setBooking(true);
+  // Time parsing (no timezone conversion)
+  const timeStr = (() => {
     try {
-      const response = await fetch("/api/book-tee-time", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tee_time_id: teeTime.id }),
-      });
-
-      if (response.ok) {
-        setBooked(true);
+      const timePart = teeTime.start_time.split("T")[1];
+      if (timePart) {
+        const [hStr, mStr] = timePart.split(":");
+        const h = parseInt(hStr);
+        const m = mStr ?? "00";
+        const ampm = h >= 12 ? "PM" : "AM";
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${h12}:${m} ${ampm}`;
       }
-    } catch (error) {
-      console.error("Booking failed:", error);
-    } finally {
-      setBooking(false);
+      return teeTime.start_time;
+    } catch {
+      return teeTime.start_time;
     }
-  };
-
-  let startTime = "TBD";
-  try {
-    startTime = format(
-      parse(teeTime.start_time, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", new Date()),
-      "h:mm a"
-    );
-  } catch (e) {
-    // Handle invalid date format
-    startTime = new Date(teeTime.start_time).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
+  })();
 
   const price =
     teeTime.price_cents && teeTime.price_cents > 0
-      ? `$${(teeTime.price_cents / 100).toFixed(2)}`
-      : "Call";
+      ? `$${(teeTime.price_cents / 100).toFixed(0)}`
+      : null;
 
-  const itemVariants = {
-    hidden: { opacity: 0, y: 20 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: 0.3,
-        delay: index * 0.05,
-      },
-    },
+  const handleBook = async () => {
+    if (!teeTime.booking_url) return;
+
+    setBookingLoading(true);
+    try {
+      // Log booking click if user is logged in
+      if (userId) {
+        const bookRes = await fetch("/api/book-tee-time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tee_time_id: teeTime.id,
+            course_id: teeTime.course_id,
+            course_name: teeTime.course?.name,
+            tee_time_display: timeStr,
+            price_cents: teeTime.price_cents,
+            booking_url: teeTime.booking_url,
+          }),
+        });
+
+        if (!bookRes.ok) {
+          const err = await bookRes.json();
+          console.error("Booking log failed:", err);
+        }
+      }
+
+      // Open course booking page
+      window.open(teeTime.booking_url, "_blank", "noopener,noreferrer");
+    } finally {
+      setBookingLoading(false);
+    }
   };
 
-  if (!teeTime) return null;
+  const handleFavorite = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!userId) return;
+
+    setFavoriteLoading(true);
+    try {
+      if (isFav) {
+        // Remove favorite
+        const { error } = await supabase
+          .from("favorite_courses")
+          .delete()
+          .eq("user_id", userId)
+          .eq("course_id", teeTime.course_id);
+
+        if (error) throw error;
+        setIsFav(false);
+        onFavoriteChange?.(teeTime.course_id, false);
+      } else {
+        // Add favorite
+        const { error } = await supabase.from("favorite_courses").insert({
+          user_id: userId,
+          course_id: teeTime.course_id,
+        });
+
+        if (error && error.code !== "23505") throw error; // 23505 = unique constraint
+        setIsFav(true);
+        onFavoriteChange?.(teeTime.course_id, true);
+      }
+    } catch (err) {
+      console.error("Favorite toggle failed:", err);
+    } finally {
+      setFavoriteLoading(false);
+    }
+  };
 
   return (
-    <motion.div variants={itemVariants} className="h-full">
-      <div
-        className={`golf-card overflow-hidden transition-all duration-300 h-full flex flex-col ${
-          booked ? "ring-2 ring-green-500" : ""
-        }`}
-      >
-        {/* Header */}
-        <div className="border-b border-gray-200 bg-gradient-to-r from-primary/10 to-accent/10 px-6 py-4">
-          <h3 className="text-lg font-bold text-primary">
-            {teeTime.course?.name ?? "Golf Course"}
+    <motion.div
+      variants={{
+        hidden: { opacity: 0, y: 16 },
+        show: {
+          opacity: 1,
+          y: 0,
+          transition: { duration: 0.25, delay: index * 0.03 },
+        },
+      }}
+      className="card-hover flex flex-col overflow-hidden group"
+    >
+      {/* Header band */}
+      <div className="flex items-start justify-between bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-3.5">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-semibold text-gray-900 text-sm">
+            {teeTime.course?.name}
           </h3>
-          {teeTime.course?.address ? (
-            <p className="mt-1 flex items-center gap-2 text-sm text-gray-600">
-              <MapPin className="h-4 w-4" />
-              {String(teeTime.course.address)}
+          {teeTime.course?.address && (
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 truncate">
+              📍 {teeTime.course.address}
             </p>
-          ) : null}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 space-y-4 px-6 py-4">
-          {/* Time */}
-          <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
-            <div className="flex items-center gap-2 text-gray-700">
-              <Clock className="h-5 w-5 text-primary" />
-              <span className="font-semibold">{startTime}</span>
-            </div>
-          </div>
-
-          {/* Details Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Players */}
-            <div className="rounded-lg border border-gray-200 px-3 py-2 text-center">
-              <div className="flex items-center justify-center gap-1 text-sm text-gray-600">
-                <Users className="h-4 w-4" />
-                {teeTime.players_needed} players
-              </div>
-            </div>
-
-            {/* Price */}
-            <div className="rounded-lg border border-gray-200 px-3 py-2 text-center">
-              <div className="flex items-center justify-center gap-1 text-sm font-semibold text-primary">
-                <DollarSign className="h-4 w-4" />
-                {price}
-              </div>
-            </div>
-          </div>
-
-          {/* Distance */}
-          {teeTime.duration_minutes && (
-            <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm">
-              <Car className="h-4 w-4 text-blue-600" />
-              <span className="font-semibold text-blue-900">
-                {teeTime.duration_minutes} min drive
-              </span>
-              {teeTime.distance_km && (
-                <span className="text-blue-700">
-                  ({teeTime.distance_km.toFixed(1)} km)
-                </span>
-              )}
-            </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-gray-200 px-6 py-3">
-          <Button
-            onClick={handleBooking}
-            disabled={booking || booked}
-            className="w-full"
-            variant={booked ? "outline" : "default"}
+        {userId && (
+          <button
+            onClick={handleFavorite}
+            disabled={favoriteLoading}
+            className="ml-2 flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition disabled:opacity-50"
+            title={isFav ? "Remove favorite" : "Add to favorites"}
           >
-            {booked ? "✓ Booked!" : booking ? "Booking..." : "Book Now"}
-          </Button>
+            <Star
+              className={`h-4 w-4 transition ${
+                isFav ? "fill-amber-500 text-amber-500" : ""
+              }`}
+            />
+          </button>
+        )}
+
+        {teeTime.cps_direct && (
+          <span className="ml-2 flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+            Direct
+          </span>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="flex flex-1 flex-col px-5 py-4">
+        {/* Time & Price row */}
+        <div className="flex items-baseline justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-primary" />
+            <span className="text-xl font-bold text-gray-900">{timeStr}</span>
+          </div>
+          {price ? (
+            <span className="text-lg font-bold text-primary">{price}</span>
+          ) : (
+            <span className="text-sm text-gray-400">Call</span>
+          )}
         </div>
+
+        {/* Stats */}
+        <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
+          <span className="flex items-center gap-1">
+            <Users className="h-3.5 w-3.5" />
+            {teeTime.players_needed} spot{teeTime.players_needed !== 1 ? "s" : ""}
+          </span>
+          {teeTime.duration_minutes ? (
+            <span className="flex items-center gap-1">
+              <Car className="h-3.5 w-3.5" />
+              {teeTime.duration_minutes} min
+            </span>
+          ) : null}
+        </div>
+
+        {/* CPS notice */}
+        {teeTime.cps_direct && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Book directly on the course website for live availability.
+          </p>
+        )}
+      </div>
+
+      {/* Book button */}
+      <div className="mt-auto border-t border-gray-100 px-5 py-3">
+        <button
+          onClick={handleBook}
+          disabled={bookingLoading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50"
+        >
+          {teeTime.cps_direct ? "View on Course Site" : "Book Now"}
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
       </div>
     </motion.div>
   );
