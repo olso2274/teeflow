@@ -1,0 +1,30 @@
+name: Update Tee Times
+
+on:
+  schedule:
+    # Run every 3 hours during golf hours (6am-6pm CT = 11am-11pm UTC)
+    - cron: "0 11,14,17,20,23 * * *"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-scores:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger tee time refresh
+        run: |
+          set -euo pipefail
+          response=$(curl -s -o response.txt -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.SITE_URL }}/api/update-scores")
+
+          echo "HTTP Status: $response"
+          cat response.txt
+
+          if [ "$response" != "200" ]; then
+            echo "Error: Request failed with HTTP $response. For 401, set CRON_SECRET the same in Vercel (Production) and GitHub."
+            exit 1
+          fi
+
+          echo "✅ Tee times updated successfully"
