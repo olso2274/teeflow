@@ -1,17 +1,12 @@
 name: Verify Deployment
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for Vercel deployment
-        run: sleep 30
-
       - name: Check site is live
         run: |
           set -euo pipefail
@@ -19,30 +14,38 @@ jobs:
             -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_SECRET }}" \
             "${{ secrets.SITE_URL }}/")
 
-          echo "HTTP Status: $response"
-
+          echo "Main site: $response"
           if [ "$response" != "200" ] && [ "$response" != "307" ] && [ "$response" != "302" ]; then
-            echo "Error: Site returned HTTP $response"
+            echo "❌ Site returned HTTP $response"
             exit 1
           fi
+          echo "✅ Site is live"
 
-          echo "✅ Site is live at ${{ secrets.SITE_URL }}"
-
-      - name: Confirm update-scores route exists
+      - name: Test update-scores endpoint
         run: |
           set -euo pipefail
           response=$(curl -s -o response.txt -w "%{http_code}" \
-            -X GET \
+            -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_SECRET }}" \
+            -H "Content-Type: application/json" \
             "${{ secrets.SITE_URL }}/api/update-scores")
 
           echo "HTTP Status: $response"
-          cat response.txt
+          cat response.txt || true
 
           if [ "$response" = "404" ]; then
-            echo "Error: /api/update-scores route not found"
+            echo "❌ Route not found — redeploy Vercel to pick up latest code"
             exit 1
           fi
 
-          echo "✅ update-scores route confirmed (Vercel cron handles scheduled runs)"
+          if [ "$response" = "401" ]; then
+            echo "❌ Unauthorized — CRON_SECRET in GitHub must match Vercel env var"
+            exit 1
+          fi
+
+          if [ "$response" = "200" ]; then
+            echo "✅ update-scores ran successfully"
+          else
+            echo "⚠️  Unexpected status $response (check logs above)"
+          fi
