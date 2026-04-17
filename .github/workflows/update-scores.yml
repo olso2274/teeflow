@@ -17,13 +17,15 @@ jobs:
             -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
+            -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_SECRET }}" \
             "${{ secrets.SITE_URL }}/api/update-scores")
 
           echo "HTTP Status: $response"
           cat response.txt
 
           if [ "$response" != "200" ]; then
-            echo "Error: Request failed with HTTP $response. For 401, set CRON_SECRET the same in Vercel (Production) and GitHub."
+            echo "Error: Request failed with HTTP $response."
+            echo "Check: CRON_SECRET matches Vercel env var, VERCEL_BYPASS_SECRET is set."
             exit 1
           fi
 
