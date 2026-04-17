@@ -89,37 +89,74 @@ async function scrapeGolfNow(
   dateStr: string
 ): Promise<Array<{ time: string; price: number; spots: number }>> {
   try {
-    // GolfNow API endpoint for rates
-    const url = `https://www.golfnow.com/api/v2/public/facility/${facilityId}/rates?date=${dateStr}`;
+    // Try multiple GolfNow API endpoints and formats
+    const endpoints = [
+      `https://api.golfnow.com/api/schedule?facility_id=${facilityId}&date=${dateStr}`,
+      `https://www.golfnow.com/api/v2/facility/${facilityId}/rates?date=${dateStr}`,
+      `https://www.golfnow.com/tee-times/facility/${facilityId}/search?date=${dateStr}`,
+    ];
 
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-      next: { revalidate: 300 },
-    });
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": "https://www.golfnow.com/",
+          },
+          next: { revalidate: 300 },
+        });
 
-    if (!res.ok) return [];
+        if (!res.ok) continue;
 
-    const data = await res.json();
-    const results: Array<{ time: string; price: number; spots: number }> = [];
+        const data = await res.json();
+        const results: Array<{ time: string; price: number; spots: number }> = [];
 
-    // Parse GolfNow rate response
-    if (data.rates && Array.isArray(data.rates)) {
-      for (const rate of data.rates) {
-        if (rate.tee_times && Array.isArray(rate.tee_times)) {
-          for (const slot of rate.tee_times) {
+        // Parse various GolfNow response formats
+        if (data.rates && Array.isArray(data.rates)) {
+          for (const rate of data.rates) {
+            if (rate.tee_times && Array.isArray(rate.tee_times)) {
+              for (const slot of rate.tee_times) {
+                if (slot.availability > 0) {
+                  results.push({
+                    time: slot.time,
+                    price: slot.green_fee || 0,
+                    spots: slot.availability,
+                  });
+                }
+              }
+            }
+          }
+        } else if (data.tee_times && Array.isArray(data.tee_times)) {
+          for (const slot of data.tee_times) {
             if (slot.availability > 0) {
               results.push({
-                time: slot.time,
-                price: slot.green_fee || 0,
-                spots: slot.availability,
+                time: slot.time || slot.start_time,
+                price: slot.price || slot.green_fee || 0,
+                spots: slot.availability || slot.spots || 0,
+              });
+            }
+          }
+        } else if (Array.isArray(data) && data.length > 0 && data[0].time) {
+          // Direct array response
+          for (const slot of data) {
+            if (slot.availability > 0 || slot.spots > 0) {
+              results.push({
+                time: slot.time || slot.start_time,
+                price: slot.price || slot.green_fee || 0,
+                spots: slot.availability || slot.spots || 0,
               });
             }
           }
         }
+
+        if (results.length > 0) return results;
+      } catch {
+        continue;
       }
     }
 
-    return results;
+    return [];
   } catch {
     return [];
   }
@@ -133,42 +170,62 @@ async function scrapeCPS(
   dateStr: string
 ): Promise<Array<{ time: string; price: number | null; spots: number }>> {
   try {
-    // CPS uses a web interface; scrape the search results page
-    const url = new URL(`https://${cpsDomain}/onlineresweb/m/search-teetime/default`);
-    url.searchParams.set("date", dateStr);
+    // Try both mobile and desktop CPS endpoints
+    const urls = [
+      `https://${cpsDomain}/onlineresweb/m/search-teetime/default?date=${dateStr}`,
+      `https://${cpsDomain}/onlineresweb/search-teetime?date=${dateStr}`,
+      `https://${cpsDomain}/onlineresweb/search-teetime/default?date=${dateStr}`,
+    ];
 
-    const res = await fetch(url.toString(), {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; GolfBot/1.0)",
-      },
-      next: { revalidate: 300 },
-    });
+    for (const baseUrl of urls) {
+      try {
+        const res = await fetch(baseUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Cache-Control": "no-cache",
+          },
+          next: { revalidate: 300 },
+        });
 
-    if (!res.ok) return [];
+        if (!res.ok) continue;
 
-    const html = await res.text();
-    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+        const html = await res.text();
+        if (!html || html.length < 100) continue;
 
-    // Parse CPS HTML response for tee time slots
-    // CPS typically shows tee times in a table format
-    const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
-    const availabilityRegex = /available|spots?:\s*(\d+)/gi;
+        const results: Array<{ time: string; price: number | null; spots: number }> = [];
 
-    let match;
-    while ((match = timeRegex.exec(html)) !== null) {
-      const hour = parseInt(match[1]);
-      const mins = parseInt(match[2]);
-      const ampm = match[3].toUpperCase();
-      const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+        // Parse CPS HTML response for tee time slots
+        // CPS typically shows tee times in a table format
+        const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
 
-      results.push({
-        time: `${dateStr}T${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`,
-        price: null,
-        spots: 4,
-      });
+        let match;
+        const seenTimes = new Set<string>();
+        while ((match = timeRegex.exec(html)) !== null) {
+          const hour = parseInt(match[1]);
+          const mins = parseInt(match[2]);
+          const ampm = match[3].toUpperCase();
+          const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+          const timeKey = `${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+          if (!seenTimes.has(timeKey)) {
+            seenTimes.add(timeKey);
+            results.push({
+              time: `${dateStr}T${timeKey}:00`,
+              price: null,
+              spots: 4,
+            });
+          }
+        }
+
+        if (results.length > 0) return results;
+      } catch {
+        continue;
+      }
     }
 
-    return results;
+    return [];
   } catch {
     return [];
   }
