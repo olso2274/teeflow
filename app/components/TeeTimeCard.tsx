@@ -144,7 +144,9 @@ export default function TeeTimeCard({
 
 ${timeStr}
 ${price ?? "Call for price"}
-${teeTime.players_needed} ${spotsText}`;
+${teeTime.players_needed} ${spotsText}
+
+Found on RubeGolf: www.rubegolf.com`;
 
     const shareUrl = `https://www.rubegolf.com/share?tee=${encodeURIComponent(summary)}`;
     window.open(shareUrl, "_blank", "noopener,noreferrer");
