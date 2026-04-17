@@ -3,11 +3,18 @@ import { createClient } from "@/utils/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
-    const { tee_time_id, booking_url } = await request.json();
+    const {
+      tee_time_id,
+      booking_url,
+      course_id,
+      course_name,
+      tee_time_display,
+      price_cents,
+    } = await request.json();
 
-    if (!tee_time_id && !booking_url) {
+    if (!booking_url) {
       return NextResponse.json(
-        { error: "Missing tee_time_id or booking_url" },
+        { error: "Missing booking_url" },
         { status: 400 }
       );
     }
@@ -29,10 +36,6 @@ export async function POST(request: NextRequest) {
 
     // Log the booking click with all relevant info
     // The actual booking happens on the course's own booking system
-    const {
-      data: { course_id, course_name, tee_time_display, price_cents },
-    } = await request.json();
-
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .insert([
