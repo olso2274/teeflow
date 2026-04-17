@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Clock, Users, Car, ExternalLink, Star } from "lucide-react";
+import { Clock, Users, Car, ExternalLink, Star, Share2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
 interface TeeTimeCardProps {
@@ -135,6 +135,21 @@ export default function TeeTimeCard({
     }
   };
 
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const spotsText = teeTime.players_needed === 1 ? "spot" : "spots";
+    const summary = `${teeTime.course?.name}
+📍 ${teeTime.course?.address}
+
+${timeStr}
+${price ?? "Call for price"}
+${teeTime.players_needed} ${spotsText}`;
+
+    const shareUrl = `https://www.rubegolf.com/share?tee=${encodeURIComponent(summary)}`;
+    window.open(shareUrl, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <motion.div
       variants={{
@@ -160,20 +175,30 @@ export default function TeeTimeCard({
           )}
         </div>
 
-        {userId && (
+        <div className="ml-2 flex items-center gap-1 flex-shrink-0">
+          {userId && (
+            <button
+              onClick={handleFavorite}
+              disabled={favoriteLoading}
+              className="rounded-lg p-1.5 text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition disabled:opacity-50"
+              title={isFav ? "Remove favorite" : "Add to favorites"}
+            >
+              <Star
+                className={`h-4 w-4 transition ${
+                  isFav ? "fill-amber-500 text-amber-500" : ""
+                }`}
+              />
+            </button>
+          )}
+
           <button
-            onClick={handleFavorite}
-            disabled={favoriteLoading}
-            className="ml-2 flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:text-amber-500 hover:bg-amber-50 transition disabled:opacity-50"
-            title={isFav ? "Remove favorite" : "Add to favorites"}
+            onClick={handleShare}
+            className="rounded-lg p-1.5 text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition"
+            title="Share tee time"
           >
-            <Star
-              className={`h-4 w-4 transition ${
-                isFav ? "fill-amber-500 text-amber-500" : ""
-              }`}
-            />
+            <Share2 className="h-4 w-4" />
           </button>
-        )}
+        </div>
 
         {teeTime.cps_direct && (
           <span className="ml-2 flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
