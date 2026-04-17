@@ -1,32 +1,48 @@
-name: Update Tee Times
+name: Verify Deployment
 
 on:
-  schedule:
-    # Run every 3 hours during golf hours (6am-6pm CT = 11am-11pm UTC)
-    - cron: "0 11,14,17,20,23 * * *"
-  workflow_dispatch: # Allow manual trigger
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  update-scores:
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger tee time refresh
+      - name: Wait for Vercel deployment
+        run: sleep 30
+
+      - name: Check site is live
+        run: |
+          set -euo pipefail
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_SECRET }}" \
+            "${{ secrets.SITE_URL }}/")
+
+          echo "HTTP Status: $response"
+
+          if [ "$response" != "200" ] && [ "$response" != "307" ] && [ "$response" != "302" ]; then
+            echo "Error: Site returned HTTP $response"
+            exit 1
+          fi
+
+          echo "✅ Site is live at ${{ secrets.SITE_URL }}"
+
+      - name: Confirm update-scores route exists
         run: |
           set -euo pipefail
           response=$(curl -s -o response.txt -w "%{http_code}" \
-            -X POST \
+            -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
             -H "x-vercel-protection-bypass: ${{ secrets.VERCEL_BYPASS_SECRET }}" \
             "${{ secrets.SITE_URL }}/api/update-scores")
 
           echo "HTTP Status: $response"
           cat response.txt
 
-          if [ "$response" != "200" ]; then
-            echo "Error: Request failed with HTTP $response."
-            echo "Check: CRON_SECRET matches Vercel env var, VERCEL_BYPASS_SECRET is set."
+          if [ "$response" = "404" ]; then
+            echo "Error: /api/update-scores route not found"
             exit 1
           fi
 
-          echo "✅ Tee times updated successfully"
+          echo "✅ update-scores route confirmed (Vercel cron handles scheduled runs)"
