@@ -175,6 +175,99 @@ async function scrapeCPS(
 }
 
 /* ═══════════════════════════════════════════
+   ChronoGolf Scraper
+   ═══════════════════════════════════════════ */
+async function scrapeChronoGolf(
+  clubSlug: string,
+  dateStr: string
+): Promise<Array<{ time: string; price: number | null; spots: number }>> {
+  try {
+    // ChronoGolf has a public API for available tee times
+    const url = `https://api.chronogolf.com/tee-times?club=${clubSlug}&date=${dateStr}`;
+
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+
+    // Parse ChronoGolf API response
+    if (data.tee_times && Array.isArray(data.tee_times)) {
+      for (const slot of data.tee_times) {
+        if (slot.available) {
+          results.push({
+            time: slot.time,
+            price: slot.price || null,
+            spots: slot.available_slots || 4,
+          });
+        }
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/* ═══════════════════════════════════════════
+   TeeSnap Scraper
+   ═══════════════════════════════════════════ */
+async function scrapeTeeSnap(
+  teesnapUrl: string,
+  dateStr: string
+): Promise<Array<{ time: string; price: number | null; spots: number }>> {
+  try {
+    // TeeSnap is a web-based booking system; need to scrape availability
+    const url = new URL(teesnapUrl);
+    url.searchParams.set("date", dateStr);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; GolfBot/1.0)",
+      },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+
+    // Parse TeeSnap HTML for tee time slots
+    // Look for time patterns like "10:30 AM" that appear as available slots
+    const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    const seenTimes = new Set<string>();
+
+    let match;
+    while ((match = timeRegex.exec(html)) !== null) {
+      const hour = parseInt(match[1]);
+      const mins = parseInt(match[2]);
+      const ampm = match[3].toUpperCase();
+      const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+      const timeStr = `${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+      if (!seenTimes.has(timeStr)) {
+        seenTimes.add(timeStr);
+        results.push({
+          time: `${dateStr}T${timeStr}:00`,
+          price: null,
+          spots: 4,
+        });
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/* ═══════════════════════════════════════════
    Scraper config resolver
    ═══════════════════════════════════════════ */
 function getForeUpIds(
@@ -235,6 +328,12 @@ export async function GET(request: NextRequest) {
     );
     const cpsCourses = (courses ?? []).filter(
       (c: CourseRow) => c.scraper_type === "cps_direct"
+    );
+    const chronogolfCourses = (courses ?? []).filter(
+      (c: CourseRow) => c.scraper_type === "chronogolf"
+    );
+    const teesnapCourses = (courses ?? []).filter(
+      (c: CourseRow) => c.scraper_type === "teesnap"
     );
     const manualCourses = (courses ?? []).filter(
       (c: CourseRow) =>
@@ -356,7 +455,78 @@ export async function GET(request: NextRequest) {
       return courseResults;
     });
 
-    // Manual courses - show placeholder (for now, requires manual entry or custom scraping)
+    // Scrape ChronoGolf courses
+    const chronogolfPromises = chronogolfCourses.map(async (course: CourseRow) => {
+      // Extract club slug from URL (e.g., "sundance-golf-club-minnesota")
+      const slugMatch = course.booking_url?.match(/club\/([^/?]+)/);
+      if (!slugMatch) return [];
+
+      const clubSlug = slugMatch[1];
+      const slots = await scrapeChronoGolf(clubSlug, date);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const courseResults: any[] = [];
+
+      for (const slot of slots) {
+        const hour = parseInt(slot.time.split(":")[0] ?? "0");
+        if (hour < startHour || hour >= endHour) continue;
+        if (slot.spots < 1) continue;
+
+        courseResults.push({
+          id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
+          course_id: course.id,
+          course: {
+            id: course.id,
+            name: course.name,
+            address: course.address,
+            lat: course.lat,
+            lng: course.lng,
+            booking_url: course.booking_url,
+          },
+          start_time: slot.time,
+          players_needed: slot.spots,
+          price_cents: slot.price ? Math.round(slot.price * 100) : null,
+          status: "open",
+          booking_url: course.booking_url,
+        });
+      }
+      return courseResults;
+    });
+
+    // Scrape TeeSnap courses
+    const teesnapPromises = teesnapCourses.map(async (course: CourseRow) => {
+      const slots = await scrapeTeeSnap(course.booking_url, date);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const courseResults: any[] = [];
+
+      for (const slot of slots) {
+        const hour = parseInt(slot.time.split("T")[1]?.split(":")[0] ?? "0");
+        if (hour < startHour || hour >= endHour) continue;
+        if (slot.spots < 1) continue;
+
+        courseResults.push({
+          id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
+          course_id: course.id,
+          course: {
+            id: course.id,
+            name: course.name,
+            address: course.address,
+            lat: course.lat,
+            lng: course.lng,
+            booking_url: course.booking_url,
+          },
+          start_time: slot.time,
+          players_needed: slot.spots,
+          price_cents: slot.price ? Math.round(slot.price * 100) : null,
+          status: "open",
+          booking_url: course.booking_url,
+        });
+      }
+      return courseResults;
+    });
+
+    // Manual courses - show placeholder (requires manual entry or custom scraping)
     const manualResults = manualCourses.map((course: CourseRow) => ({
       id: `${course.id}-placeholder`,
       course_id: course.id,
@@ -377,15 +547,19 @@ export async function GET(request: NextRequest) {
     }));
 
     // Execute all scrapers in parallel
-    const [foreupResults, golfnowResults, cpsResults] = await Promise.all([
+    const [foreupResults, golfnowResults, cpsResults, chronogolfResults, teesnapResults] = await Promise.all([
       Promise.all(foreupPromises),
       Promise.all(golfnowPromises),
       Promise.all(cpsPromises),
+      Promise.all(chronogolfPromises),
+      Promise.all(teesnapPromises),
     ]);
 
     foreupResults.forEach((batch) => results.push(...batch));
     golfnowResults.forEach((batch) => results.push(...batch));
     cpsResults.forEach((batch) => results.push(...batch));
+    chronogolfResults.forEach((batch) => results.push(...batch));
+    teesnapResults.forEach((batch) => results.push(...batch));
     results.push(...manualResults);
 
     // Sort: real tee times first (by time), placeholder last
