@@ -15,17 +15,6 @@ interface ForeUpSlot {
   booking_class: string;
 }
 
-interface GolfNowRate {
-  rate_id: string;
-  rate_name: string;
-  holes: number;
-  tee_times?: Array<{
-    time: string;
-    green_fee: number;
-    availability: number;
-  }>;
-}
-
 interface CourseRow {
   id: string;
   name: string;
@@ -53,9 +42,7 @@ async function scrapeForeUp(
   scheduleId: number
 ): Promise<ForeUpSlot[]> {
   const date = toForeUpDate(dateStr);
-  const url = new URL(
-    "https://foreupsoftware.com/index.php/api/booking/times"
-  );
+  const url = new URL("https://foreupsoftware.com/index.php/api/booking/times");
   url.searchParams.set("time", "all");
   url.searchParams.set("date", date);
   url.searchParams.set("holes", "18");
@@ -69,7 +56,7 @@ async function scrapeForeUp(
     const res = await fetch(url.toString(), {
       headers: {
         "x-requested-with": "XMLHttpRequest",
-        Accept: "application/json",
+        "Accept": "application/json",
       },
       next: { revalidate: 60 },
     });
@@ -89,74 +76,36 @@ async function scrapeGolfNow(
   dateStr: string
 ): Promise<Array<{ time: string; price: number; spots: number }>> {
   try {
-    // Try multiple GolfNow API endpoints and formats
-    const endpoints = [
-      `https://api.golfnow.com/api/schedule?facility_id=${facilityId}&date=${dateStr}`,
-      `https://www.golfnow.com/api/v2/facility/${facilityId}/rates?date=${dateStr}`,
-      `https://www.golfnow.com/tee-times/facility/${facilityId}/search?date=${dateStr}`,
-    ];
+    const url = `https://www.golfnow.com/api/v2/public/facility/${facilityId}/rates?date=${dateStr}`;
 
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          headers: {
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://www.golfnow.com/",
-          },
-          next: { revalidate: 300 },
-        });
+    const res = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      next: { revalidate: 300 },
+    });
 
-        if (!res.ok) continue;
+    if (!res.ok) return [];
+    const data = await res.json();
+    const results: Array<{ time: string; price: number; spots: number }> = [];
 
-        const data = await res.json();
-        const results: Array<{ time: string; price: number; spots: number }> = [];
-
-        // Parse various GolfNow response formats
-        if (data.rates && Array.isArray(data.rates)) {
-          for (const rate of data.rates) {
-            if (rate.tee_times && Array.isArray(rate.tee_times)) {
-              for (const slot of rate.tee_times) {
-                if (slot.availability > 0) {
-                  results.push({
-                    time: slot.time,
-                    price: slot.green_fee || 0,
-                    spots: slot.availability,
-                  });
-                }
-              }
-            }
-          }
-        } else if (data.tee_times && Array.isArray(data.tee_times)) {
-          for (const slot of data.tee_times) {
+    if (data.rates && Array.isArray(data.rates)) {
+      for (const rate of data.rates) {
+        if (rate.tee_times && Array.isArray(rate.tee_times)) {
+          for (const slot of rate.tee_times) {
             if (slot.availability > 0) {
               results.push({
-                time: slot.time || slot.start_time,
-                price: slot.price || slot.green_fee || 0,
-                spots: slot.availability || slot.spots || 0,
-              });
-            }
-          }
-        } else if (Array.isArray(data) && data.length > 0 && data[0].time) {
-          // Direct array response
-          for (const slot of data) {
-            if (slot.availability > 0 || slot.spots > 0) {
-              results.push({
-                time: slot.time || slot.start_time,
-                price: slot.price || slot.green_fee || 0,
-                spots: slot.availability || slot.spots || 0,
+                time: slot.time,
+                price: slot.green_fee || 0,
+                spots: slot.availability,
               });
             }
           }
         }
-
-        if (results.length > 0) return results;
-      } catch {
-        continue;
       }
     }
-
-    return [];
+    return results;
   } catch {
     return [];
   }
@@ -170,62 +119,41 @@ async function scrapeCPS(
   dateStr: string
 ): Promise<Array<{ time: string; price: number | null; spots: number }>> {
   try {
-    // Try both mobile and desktop CPS endpoints
-    const urls = [
-      `https://${cpsDomain}/onlineresweb/m/search-teetime/default?date=${dateStr}`,
-      `https://${cpsDomain}/onlineresweb/search-teetime?date=${dateStr}`,
-      `https://${cpsDomain}/onlineresweb/search-teetime/default?date=${dateStr}`,
-    ];
+    const url = `https://${cpsDomain}/onlineresweb/m/search-teetime/default`;
 
-    for (const baseUrl of urls) {
-      try {
-        const res = await fetch(baseUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Cache-Control": "no-cache",
-          },
-          next: { revalidate: 300 },
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html",
+      },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+
+    const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    let match;
+    const seenTimes = new Set<string>();
+
+    while ((match = timeRegex.exec(html)) !== null) {
+      const hour = parseInt(match[1]);
+      const mins = parseInt(match[2]);
+      const ampm = match[3].toUpperCase();
+      const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+      const timeKey = `${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+      if (!seenTimes.has(timeKey)) {
+        seenTimes.add(timeKey);
+        results.push({
+          time: `${dateStr}T${timeKey}:00`,
+          price: null,
+          spots: 4,
         });
-
-        if (!res.ok) continue;
-
-        const html = await res.text();
-        if (!html || html.length < 100) continue;
-
-        const results: Array<{ time: string; price: number | null; spots: number }> = [];
-
-        // Parse CPS HTML response for tee time slots
-        // CPS typically shows tee times in a table format
-        const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
-
-        let match;
-        const seenTimes = new Set<string>();
-        while ((match = timeRegex.exec(html)) !== null) {
-          const hour = parseInt(match[1]);
-          const mins = parseInt(match[2]);
-          const ampm = match[3].toUpperCase();
-          const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
-          const timeKey = `${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-
-          if (!seenTimes.has(timeKey)) {
-            seenTimes.add(timeKey);
-            results.push({
-              time: `${dateStr}T${timeKey}:00`,
-              price: null,
-              spots: 4,
-            });
-          }
-        }
-
-        if (results.length > 0) return results;
-      } catch {
-        continue;
       }
     }
-
-    return [];
+    return results;
   } catch {
     return [];
   }
@@ -239,68 +167,24 @@ async function scrapeChronoGolf(
   dateStr: string
 ): Promise<Array<{ time: string; price: number | null; spots: number }>> {
   try {
-    // ChronoGolf has a public API for available tee times
-    const url = `https://api.chronogolf.com/tee-times?club=${clubSlug}&date=${dateStr}`;
+    const url = `https://www.chronogolf.com/club/${clubSlug}`;
 
     const res = await fetch(url, {
-      headers: { "Accept": "application/json" },
-      next: { revalidate: 300 },
-    });
-
-    if (!res.ok) return [];
-
-    const data = await res.json();
-    const results: Array<{ time: string; price: number | null; spots: number }> = [];
-
-    // Parse ChronoGolf API response
-    if (data.tee_times && Array.isArray(data.tee_times)) {
-      for (const slot of data.tee_times) {
-        if (slot.available) {
-          results.push({
-            time: slot.time,
-            price: slot.price || null,
-            spots: slot.available_slots || 4,
-          });
-        }
-      }
-    }
-
-    return results;
-  } catch {
-    return [];
-  }
-}
-
-/* ═══════════════════════════════════════════
-   TeeSnap Scraper
-   ═══════════════════════════════════════════ */
-async function scrapeTeeSnap(
-  teesnapUrl: string,
-  dateStr: string
-): Promise<Array<{ time: string; price: number | null; spots: number }>> {
-  try {
-    // TeeSnap is a web-based booking system; need to scrape availability
-    const url = new URL(teesnapUrl);
-    url.searchParams.set("date", dateStr);
-
-    const res = await fetch(url.toString(), {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; GolfBot/1.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
       next: { revalidate: 300 },
     });
 
     if (!res.ok) return [];
-
     const html = await res.text();
     const results: Array<{ time: string; price: number | null; spots: number }> = [];
 
-    // Parse TeeSnap HTML for tee time slots
-    // Look for time patterns like "10:30 AM" that appear as available slots
+    // Parse ChronoGolf HTML for tee times
     const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    let match;
     const seenTimes = new Set<string>();
 
-    let match;
     while ((match = timeRegex.exec(html)) !== null) {
       const hour = parseInt(match[1]);
       const mins = parseInt(match[2]);
@@ -317,7 +201,51 @@ async function scrapeTeeSnap(
         });
       }
     }
+    return results;
+  } catch {
+    return [];
+  }
+}
 
+/* ═══════════════════════════════════════════
+   TeeSnap Scraper
+   ═══════════════════════════════════════════ */
+async function scrapeTeeSnap(
+  teesnapUrl: string,
+  dateStr: string
+): Promise<Array<{ time: string; price: number | null; spots: number }>> {
+  try {
+    const res = await fetch(teesnapUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+    const html = await res.text();
+    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+
+    const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    let match;
+    const seenTimes = new Set<string>();
+
+    while ((match = timeRegex.exec(html)) !== null) {
+      const hour = parseInt(match[1]);
+      const mins = parseInt(match[2]);
+      const ampm = match[3].toUpperCase();
+      const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+      const timeStr = `${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+
+      if (!seenTimes.has(timeStr)) {
+        seenTimes.add(timeStr);
+        results.push({
+          time: `${dateStr}T${timeStr}:00`,
+          price: null,
+          spots: 4,
+        });
+      }
+    }
     return results;
   } catch {
     return [];
