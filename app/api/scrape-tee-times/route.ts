@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
 /* ═══════════════════════════════════════════
-   ForeUp API types
+   API Types
    ═══════════════════════════════════════════ */
 interface ForeUpSlot {
-  time: string; // "2026-04-17 10:50"
+  time: string;
   available_spots: number;
   green_fee: number;
   cart_fee: number;
@@ -13,6 +13,17 @@ interface ForeUpSlot {
   course_name: string;
   schedule_id: number;
   booking_class: string;
+}
+
+interface GolfNowRate {
+  rate_id: string;
+  rate_name: string;
+  holes: number;
+  tee_times?: Array<{
+    time: string;
+    green_fee: number;
+    availability: number;
+  }>;
 }
 
 interface CourseRow {
@@ -24,12 +35,12 @@ interface CourseRow {
   website: string;
   booking_url: string;
   scraper_type?: string;
-  scraper_config?: { course_id?: number; schedule_id?: number };
+  scraper_config?: { course_id?: number; schedule_id?: number; facility_id?: number };
   is_active?: boolean;
 }
 
 /* ═══════════════════════════════════════════
-   ForeUp scraper (works for any ForeUp course)
+   ForeUp Scraper
    ═══════════════════════════════════════════ */
 function toForeUpDate(dateStr: string): string {
   const [year, month, day] = dateStr.split("-");
@@ -65,6 +76,99 @@ async function scrapeForeUp(
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+/* ═══════════════════════════════════════════
+   GolfNow Scraper
+   ═══════════════════════════════════════════ */
+async function scrapeGolfNow(
+  facilityId: number,
+  dateStr: string
+): Promise<Array<{ time: string; price: number; spots: number }>> {
+  try {
+    // GolfNow API endpoint for rates
+    const url = `https://www.golfnow.com/api/v2/public/facility/${facilityId}/rates?date=${dateStr}`;
+
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json" },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const results: Array<{ time: string; price: number; spots: number }> = [];
+
+    // Parse GolfNow rate response
+    if (data.rates && Array.isArray(data.rates)) {
+      for (const rate of data.rates) {
+        if (rate.tee_times && Array.isArray(rate.tee_times)) {
+          for (const slot of rate.tee_times) {
+            if (slot.availability > 0) {
+              results.push({
+                time: slot.time,
+                price: slot.green_fee || 0,
+                spots: slot.availability,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/* ═══════════════════════════════════════════
+   CPS Golf Scraper
+   ═══════════════════════════════════════════ */
+async function scrapeCPS(
+  cpsDomain: string,
+  dateStr: string
+): Promise<Array<{ time: string; price: number | null; spots: number }>> {
+  try {
+    // CPS uses a web interface; scrape the search results page
+    const url = new URL(`https://${cpsDomain}/onlineresweb/m/search-teetime/default`);
+    url.searchParams.set("date", dateStr);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; GolfBot/1.0)",
+      },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const results: Array<{ time: string; price: number | null; spots: number }> = [];
+
+    // Parse CPS HTML response for tee time slots
+    // CPS typically shows tee times in a table format
+    const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi;
+    const availabilityRegex = /available|spots?:\s*(\d+)/gi;
+
+    let match;
+    while ((match = timeRegex.exec(html)) !== null) {
+      const hour = parseInt(match[1]);
+      const mins = parseInt(match[2]);
+      const ampm = match[3].toUpperCase();
+      const hour24 = ampm === "PM" && hour !== 12 ? hour + 12 : (ampm === "AM" && hour === 12 ? 0 : hour);
+
+      results.push({
+        time: `${dateStr}T${String(hour24).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`,
+        price: null,
+        spots: 4,
+      });
+    }
+
+    return results;
   } catch {
     return [];
   }
@@ -120,19 +224,25 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results: any[] = [];
 
-    // Scrape all ForeUp courses in parallel for speed
+    // Route to appropriate scraper by platform
     const foreupCourses = (courses ?? []).filter(
       (c: CourseRow) =>
         c.scraper_type === "foreup" ||
         c.booking_url?.includes("foreupsoftware.com")
     );
-    const otherCourses = (courses ?? []).filter(
+    const golfnowCourses = (courses ?? []).filter(
+      (c: CourseRow) => c.scraper_type === "golfnow"
+    );
+    const cpsCourses = (courses ?? []).filter(
+      (c: CourseRow) => c.scraper_type === "cps_direct"
+    );
+    const manualCourses = (courses ?? []).filter(
       (c: CourseRow) =>
-        c.scraper_type !== "foreup" &&
+        c.scraper_type === "manual" &&
         !c.booking_url?.includes("foreupsoftware.com")
     );
 
-    // Parallel ForeUp scraping
+    // Scrape ForeUp courses
     const foreupPromises = foreupCourses.map(async (course: CourseRow) => {
       const ids = getForeUpIds(course);
       if (!ids) return [];
@@ -148,10 +258,7 @@ export async function GET(request: NextRequest) {
         if (hour < startHour || hour >= endHour) continue;
         if (slot.available_spots < 1) continue;
 
-        // Keep time as-is from ForeUp (course local time, no TZ conversion)
-        // "2026-04-17 10:50" → "2026-04-17T10:50:00" (treated as local)
         const localTime = slot.time.replace(" ", "T") + ":00";
-
         courseResults.push({
           id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
           course_id: course.id,
@@ -173,35 +280,120 @@ export async function GET(request: NextRequest) {
       return courseResults;
     });
 
-    const foreupResults = await Promise.all(foreupPromises);
-    foreupResults.forEach((batch) => results.push(...batch));
+    // Scrape GolfNow courses
+    const golfnowPromises = golfnowCourses.map(async (course: CourseRow) => {
+      // Extract facility ID from URL
+      const facilityMatch = course.booking_url?.match(/facility\/(\d+)/);
+      if (!facilityMatch) return [];
 
-    // CPS / direct-booking courses (no public API)
-    for (const course of otherCourses) {
-      results.push({
-        id: `${course.id}-direct`,
-        course_id: course.id,
-        course: {
-          id: course.id,
-          name: course.name,
-          address: course.address,
-          lat: course.lat,
-          lng: course.lng,
+      const facilityId = parseInt(facilityMatch[1]);
+      const slots = await scrapeGolfNow(facilityId, date);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const courseResults: any[] = [];
+
+      for (const slot of slots) {
+        const hour = parseInt(slot.time.split(":")[0] ?? "0");
+        if (hour < startHour || hour >= endHour) continue;
+        if (slot.spots < 1) continue;
+
+        courseResults.push({
+          id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
+          course_id: course.id,
+          course: {
+            id: course.id,
+            name: course.name,
+            address: course.address,
+            lat: course.lat,
+            lng: course.lng,
+            booking_url: course.booking_url,
+          },
+          start_time: `${date}T${slot.time}:00`,
+          players_needed: slot.spots,
+          price_cents: slot.price > 0 ? Math.round(slot.price * 100) : null,
+          status: "open",
           booking_url: course.booking_url,
-        },
-        start_time: `${date}T${String(startHour).padStart(2, "0")}:00:00`,
-        players_needed: 4,
-        price_cents: null,
-        status: "open",
-        booking_url: course.booking_url,
-        cps_direct: true,
-      });
-    }
+        });
+      }
+      return courseResults;
+    });
 
-    // Sort: real tee times first (by time), CPS direct last
+    // Scrape CPS courses
+    const cpsPromises = cpsCourses.map(async (course: CourseRow) => {
+      // Extract domain from CPS URL
+      const domainMatch = course.booking_url?.match(/https:\/\/([^/]+)/);
+      if (!domainMatch) return [];
+
+      const cpsDomain = domainMatch[1];
+      const slots = await scrapeCPS(cpsDomain, date);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const courseResults: any[] = [];
+
+      for (const slot of slots) {
+        const hour = parseInt(slot.time.split("T")[1]?.split(":")[0] ?? "0");
+        if (hour < startHour || hour >= endHour) continue;
+
+        courseResults.push({
+          id: `${course.id}-${slot.time.replace(/\D/g, "")}`,
+          course_id: course.id,
+          course: {
+            id: course.id,
+            name: course.name,
+            address: course.address,
+            lat: course.lat,
+            lng: course.lng,
+            booking_url: course.booking_url,
+          },
+          start_time: slot.time,
+          players_needed: slot.spots,
+          price_cents: slot.price ? Math.round(slot.price * 100) : null,
+          status: "open",
+          booking_url: course.booking_url,
+          cps_direct: true,
+        });
+      }
+      return courseResults;
+    });
+
+    // Manual courses - show placeholder (for now, requires manual entry or custom scraping)
+    const manualResults = manualCourses.map((course: CourseRow) => ({
+      id: `${course.id}-placeholder`,
+      course_id: course.id,
+      course: {
+        id: course.id,
+        name: course.name,
+        address: course.address,
+        lat: course.lat,
+        lng: course.lng,
+        booking_url: course.booking_url,
+      },
+      start_time: `${date}T${String(startHour).padStart(2, "0")}:00:00`,
+      players_needed: 4,
+      price_cents: null,
+      status: "open",
+      booking_url: course.booking_url,
+      manual: true,
+    }));
+
+    // Execute all scrapers in parallel
+    const [foreupResults, golfnowResults, cpsResults] = await Promise.all([
+      Promise.all(foreupPromises),
+      Promise.all(golfnowPromises),
+      Promise.all(cpsPromises),
+    ]);
+
+    foreupResults.forEach((batch) => results.push(...batch));
+    golfnowResults.forEach((batch) => results.push(...batch));
+    cpsResults.forEach((batch) => results.push(...batch));
+    results.push(...manualResults);
+
+    // Sort: real tee times first (by time), placeholder last
     results.sort((a, b) => {
-      if (a.cps_direct && !b.cps_direct) return 1;
-      if (!a.cps_direct && b.cps_direct) return -1;
+      const aIsPlaceholder = a.cps_direct || a.manual;
+      const bIsPlaceholder = b.cps_direct || b.manual;
+      if (aIsPlaceholder && !bIsPlaceholder) return 1;
+      if (!aIsPlaceholder && bIsPlaceholder) return -1;
       return (
         new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
       );

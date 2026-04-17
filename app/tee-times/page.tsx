@@ -43,6 +43,7 @@ interface TeeTimeResult {
   status: string;
   booking_url: string;
   cps_direct?: boolean;
+  manual?: boolean;
   duration_minutes?: number;
 }
 
@@ -650,7 +651,12 @@ Found on RubeGolf: www.rubegolf.com`;
 
         {teeTime.cps_direct && (
           <span className="ml-2 flex-shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
-            Direct
+            Live
+          </span>
+        )}
+        {teeTime.manual && (
+          <span className="ml-2 flex-shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-700">
+            Call
           </span>
         )}
       </div>
@@ -691,6 +697,11 @@ Found on RubeGolf: www.rubegolf.com`;
             Book directly on the course website for live availability.
           </p>
         )}
+        {teeTime.manual && (
+          <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            Contact course directly for tee time availability.
+          </p>
+        )}
       </div>
 
       {/* Book button */}
@@ -699,7 +710,7 @@ Found on RubeGolf: www.rubegolf.com`;
           onClick={handleBook}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98]"
         >
-          {teeTime.cps_direct ? "View on Course Site" : "Book Now"}
+          {teeTime.cps_direct ? "View on Course Site" : teeTime.manual ? "Call Course" : "Book Now"}
           <ExternalLink className="h-3.5 w-3.5" />
         </button>
       </div>
