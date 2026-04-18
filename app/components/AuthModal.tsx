@@ -112,7 +112,7 @@ export default function AuthModal({
               <>
                 <div className="mb-6">
                   <h2 className="text-xl font-bold text-gray-900">
-                    Create your account
+                    Login or create your account
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
                     We&apos;ll email you a sign-in link &mdash; no password
