@@ -382,8 +382,8 @@ function TeeTimesContent() {
                   : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
-              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${showLiveOnly ? "bg-white" : "bg-green-500"}`} />
-              <span>Live only</span>
+              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${showLiveOnly ? "bg-green-400" : "bg-gray-300"}`} />
+              <span>Live Times Only</span>
             </button>
 
             {/* Course filter */}
