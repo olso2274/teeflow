@@ -79,6 +79,7 @@ function TeeTimesContent() {
   const [courseFilter, setCourseFilter] = useState("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showLiveOnly, setShowLiveOnly] = useState(false);
   const [favoriteCourses, setFavoriteCourses] = useState<Set<string>>(new Set());
 
   // User session
@@ -194,6 +195,11 @@ function TeeTimesContent() {
       result = result.filter((t) => favoriteCourses.has(t.course_id));
     }
 
+    // Filter to live tee times only (exclude "contact course directly" cards)
+    if (showLiveOnly) {
+      result = result.filter((t) => !t.manual);
+    }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price":
@@ -211,7 +217,7 @@ function TeeTimesContent() {
       }
     });
     return result;
-  }, [teeTimes, courseFilter, sortBy, showFavoritesOnly, favoriteCourses]);
+  }, [teeTimes, courseFilter, sortBy, showFavoritesOnly, showLiveOnly, favoriteCourses]);
 
   const displayDate = date
     ? format(parseISO(date), "EEEE, MMMM d, yyyy")
@@ -366,6 +372,19 @@ function TeeTimesContent() {
                 <span className="hidden sm:inline">Favorites</span>
               </button>
             )}
+
+            {/* Live tee times filter */}
+            <button
+              onClick={() => setShowLiveOnly(!showLiveOnly)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition ${
+                showLiveOnly
+                  ? "sort-active"
+                  : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${showLiveOnly ? "bg-white" : "bg-green-500"}`} />
+              <span>Live only</span>
+            </button>
 
             {/* Course filter */}
             {courses.length > 1 && (
