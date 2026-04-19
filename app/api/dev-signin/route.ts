@@ -40,30 +40,40 @@ export async function POST(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Upsert confirmed user via admin API
-  const { data: existing } = await admin.auth.admin.listUsers();
-  const existingUser = existing?.users?.find((u) => u.email === lc);
-
   let userId: string;
 
-  if (existingUser) {
-    userId = existingUser.id;
+  // Try creating the user first; fall back to finding them if they already exist
+  const { data: created, error: createErr } = await admin.auth.admin.createUser({
+    email: lc,
+    password: DEV_PASSWORD,
+    email_confirm: true,
+    user_metadata: { name: info.name, phone: info.phone },
+  });
+
+  if (created?.user) {
+    userId = created.user.id;
+  } else {
+    // User already exists — find by email via paginated listUsers
+    let foundId: string | undefined;
+    let page = 1;
+    while (!foundId) {
+      const { data: page_data } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+      if (!page_data?.users?.length) break;
+      const match = page_data.users.find((u) => u.email === lc);
+      if (match) { foundId = match.id; break; }
+      if (page_data.users.length < 1000) break;
+      page++;
+    }
+    if (!foundId) {
+      console.error("createUser error:", createErr);
+      return NextResponse.json({ error: "Failed to create or find user." }, { status: 500 });
+    }
+    userId = foundId;
     // Ensure password is set and email confirmed
     await admin.auth.admin.updateUserById(userId, {
       password: DEV_PASSWORD,
       email_confirm: true,
     });
-  } else {
-    const { data: created, error: createErr } = await admin.auth.admin.createUser({
-      email: lc,
-      password: DEV_PASSWORD,
-      email_confirm: true,
-      user_metadata: { name: info.name, phone: info.phone },
-    });
-    if (createErr || !created.user) {
-      return NextResponse.json({ error: "Failed to create user." }, { status: 500 });
-    }
-    userId = created.user.id;
   }
 
   // Upsert profile
