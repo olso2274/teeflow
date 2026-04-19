@@ -72,7 +72,11 @@ function CallbackHandler() {
         if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
           if (!error) {
-            if (mounted) redirectAfterAuth();
+            // Hard navigation so the browser flushes cookies before the new page loads.
+            // router.replace would fire before @supabase/ssr writes the session cookie.
+            const next = searchParams.get("next");
+            const dest = next?.startsWith("/") ? next : "/";
+            window.location.replace(dest);
             return;
           }
         }

@@ -76,30 +76,33 @@ export default function CourseDashboardPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
-      // Check auth
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        router.replace("/course-signup");
+        if (!cancelled) router.replace("/course-signup");
         return;
       }
 
-      // Load course account
       const res = await fetch("/api/course/me");
       const data = await res.json();
 
       if (!data.account) {
-        router.replace("/course-signup");
+        if (!cancelled) router.replace("/course-signup");
         return;
       }
 
-      setAccount(data.account);
-      setLoading(false);
-      loadTimes();
+      if (!cancelled) {
+        setAccount(data.account);
+        setLoading(false);
+        loadTimes();
+      }
     };
 
     init();
-  }, [router, loadTimes]);
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
