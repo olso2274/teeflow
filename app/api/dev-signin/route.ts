@@ -13,7 +13,7 @@ const BYPASS_COURSES: Record<string, { name: string; phone: string; courseName: 
   "test18@rubegolf.com": { name: "Sampson", phone: "9524704145", courseName: "Test Golf Course Pines" },
 };
 
-export const DEV_PASSWORD = "RubeGolf2024!";
+const DEV_PASSWORD = "RubeGolf2024!";
 
 export async function POST(request: NextRequest) {
   try {
