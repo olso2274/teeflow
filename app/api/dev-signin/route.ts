@@ -150,22 +150,30 @@ export async function POST(request: NextRequest) {
   const redirectTo = `${origin}/auth/callback${nextParam}`;
 
   try {
+    console.log("dev-signin: generating magic link", { email: lc, redirectTo });
     const { data: signInLink, error: linkGenErr } = await admin.auth.admin.generateLink({
       type: "magiclink",
       email: lc,
       options: { redirectTo },
     });
 
+    if (linkGenErr) {
+      console.error("dev-signin: generateLink error:", linkGenErr);
+    } else {
+      console.log("dev-signin: generateLink success, properties:", Object.keys(signInLink?.properties || {}));
+    }
+
     if (!linkGenErr && signInLink?.properties?.action_link) {
+      console.log("dev-signin: returning loginUrl");
       return NextResponse.json({
         ready: true,
         isCourse: !!course,
         loginUrl: signInLink.properties.action_link,
       });
     }
-    console.warn("dev-signin: generateLink for sign-in failed:", linkGenErr?.message);
+    console.warn("dev-signin: generateLink returned no action_link, falling back");
   } catch (err) {
-    console.warn("dev-signin: generateLink threw:", err);
+    console.error("dev-signin: generateLink threw:", err);
   }
 
   // Fallback: client will use signInWithPassword (password must be set)
