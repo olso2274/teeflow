@@ -3,20 +3,52 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Mail, CheckCircle2, Flag } from "lucide-react";
+import { ArrowLeft, Mail, CheckCircle2, Flag, Zap } from "lucide-react";
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/client";
+
+const BYPASS_COURSE_EMAILS = new Set([
+  "eo18@rubegolf.com",
+  "ml18@rubegolf.com",
+  "test18@rubegolf.com",
+]);
 
 export default function CourseSignupPage() {
   const router = useRouter();
+  const supabase = createClient();
 
   const [courseName, setCourseName] = useState("");
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [isBypass, setIsBypass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [isExisting, setIsExisting] = useState(false);
+
+  const handleDevSignin = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/dev-signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
+      await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      });
+      router.push("/course-dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +156,10 @@ export default function CourseSignupPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="jane@braemar.com"
                     className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setIsBypass(BYPASS_COURSE_EMAILS.has(e.target.value.trim().toLowerCase()));
+                    }}
                     required
                   />
                 </div>
@@ -145,13 +181,25 @@ export default function CourseSignupPage() {
                   <p className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600">{error}</p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1"
-                >
-                  {loading ? "Submitting..." : "Get started — it's free"}
-                </button>
+                {isBypass ? (
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={handleDevSignin}
+                    className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1 flex items-center justify-center gap-2"
+                  >
+                    <Zap className="h-4 w-4" />
+                    {loading ? "Signing in..." : "Quick access"}
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1"
+                  >
+                    {loading ? "Submitting..." : "Get started — it's free"}
+                  </button>
+                )}
               </form>
 
               <p className="mt-5 text-center text-xs text-gray-400">

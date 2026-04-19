@@ -3,9 +3,18 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
-import { X, Mail, CheckCircle2 } from "lucide-react";
+import { X, Mail, CheckCircle2, Zap } from "lucide-react";
 
 const STORAGE_KEY = "rubegolf_user";
+
+const BYPASS_EMAILS = new Set([
+  "eo@rubegolf.com",
+  "ml@rubegolf.com",
+  "testgolfer@rubegolf.com",
+  "eo18@rubegolf.com",
+  "ml18@rubegolf.com",
+  "test18@rubegolf.com",
+]);
 
 interface AuthModalProps {
   open: boolean;
@@ -22,6 +31,7 @@ export default function AuthModal({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [isReturning, setIsReturning] = useState(false);
+  const [isBypass, setIsBypass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
@@ -40,12 +50,46 @@ export default function AuthModal({
           setEmail(savedEmail);
           setPhone(savedPhone ?? "");
           setIsReturning(true);
+          setIsBypass(BYPASS_EMAILS.has(savedEmail.trim().toLowerCase()));
         }
       }
     } catch {
       /* localStorage unavailable */
     }
   }, [open]);
+
+  const handleDevSignin = async (emailVal: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/dev-signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailVal }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
+
+      const supabase = createClient();
+      await supabase.auth.setSession({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+      });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        saveToStorage(name.trim(), emailVal.trim(), phone.trim());
+        if (data.isCourse) {
+          window.location.href = "/course-dashboard";
+        } else {
+          onSuccess(user.id);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const saveToStorage = (n: string, e: string, p: string) => {
     try {
@@ -177,7 +221,11 @@ export default function AuthModal({
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => { setEmail(e.target.value); setIsReturning(false); }}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setIsReturning(false);
+                        setIsBypass(BYPASS_EMAILS.has(e.target.value.trim().toLowerCase()));
+                      }}
                       placeholder="jared@example.com"
                       className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
                       required
@@ -204,13 +252,25 @@ export default function AuthModal({
                     </p>
                   )}
 
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1"
-                  >
-                    {loading ? "Sending link..." : "Continue"}
-                  </button>
+                  {isBypass ? (
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => handleDevSignin(email)}
+                      className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1 flex items-center justify-center gap-2"
+                    >
+                      <Zap className="h-4 w-4" />
+                      {loading ? "Signing in..." : "Quick access"}
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50 mt-1"
+                    >
+                      {loading ? "Sending link..." : "Continue"}
+                    </button>
+                  )}
                 </form>
 
                 <p className="mt-5 text-center text-xs text-gray-400">
