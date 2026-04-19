@@ -69,6 +69,16 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
+      saveToStorage(name.trim(), emailVal.trim(), phone.trim());
+
+      // Server returns a Supabase magic link — navigate to it so Supabase
+      // handles session creation with proper HttpOnly cookies server-side.
+      if (data.loginUrl) {
+        window.location.href = data.loginUrl;
+        return;
+      }
+
+      // Fallback: direct password sign-in (requires password set on account)
       const supabase = createClient();
       const { data: session, error: signInErr } = await supabase.auth.signInWithPassword({
         email: emailVal.trim().toLowerCase(),
@@ -76,7 +86,6 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
       });
       if (signInErr || !session.user) throw new Error(signInErr?.message ?? "Sign-in failed.");
 
-      saveToStorage(name.trim(), emailVal.trim(), phone.trim());
       if (data.isCourse) {
         window.location.href = "/course-dashboard";
       } else {

@@ -31,7 +31,6 @@ export default function CourseSignupPage() {
     setLoading(true);
     setError(null);
     try {
-      // Step 1: ensure user exists server-side
       const res = await fetch("/api/dev-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -40,7 +39,14 @@ export default function CourseSignupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
-      // Step 2: sign in with password on the client
+      // Server returns a Supabase magic link — navigate to it so Supabase
+      // handles session creation with proper HttpOnly cookies server-side.
+      if (data.loginUrl) {
+        window.location.href = data.loginUrl;
+        return;
+      }
+
+      // Fallback: direct password sign-in (requires password set on account)
       const { error: signInErr } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password: "RubeGolf2024!",

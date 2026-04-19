@@ -13,8 +13,6 @@ const BYPASS_COURSES: Record<string, { name: string; phone: string; courseName: 
   "test18@rubegolf.com": { name: "Sampson", phone: "9524704145", courseName: "Test Golf Course Pines" },
 };
 
-const DEV_PASSWORD = "RubeGolf2024!";
-
 export async function POST(request: NextRequest) {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -42,22 +40,17 @@ export async function POST(request: NextRequest) {
 
   const info = golfer ?? course!;
 
-  let admin: ReturnType<typeof createClient>;
-  try {
-    admin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-  } catch (err) {
-    console.error("dev-signin: createClient failed:", err);
-    return NextResponse.json({ error: "Failed to init admin client." }, { status: 500 });
-  }
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = admin as any;
 
-  // Try to create user; if they exist already, find and update them
+  // ── Step 1: Ensure user exists ─────────────────────────────────────────
   let userId: string;
   try {
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: lc,
-      password: DEV_PASSWORD,
       email_confirm: true,
       user_metadata: { name: info.name, phone: info.phone },
     });
@@ -65,24 +58,20 @@ export async function POST(request: NextRequest) {
     if (created?.user) {
       userId = created.user.id;
     } else {
-      // User already exists — use generateLink to resolve their ID without pagination
+      // Already exists — resolve ID via generateLink (avoids listUsers pagination)
       const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
         type: "magiclink",
         email: lc,
       });
       if (linkErr || !linkData?.user) {
-        const createMsg = createErr?.message ?? "unknown";
-        const linkMsg = linkErr?.message ?? "generateLink returned no user";
-        console.error("dev-signin: lookup failed:", lc, createMsg, linkMsg);
-        return NextResponse.json(
-          { error: `Could not locate account (${createMsg}). Lookup error: ${linkMsg}` },
-          { status: 500 }
-        );
+        const msg = linkErr?.message ?? createErr?.message ?? "unknown";
+        console.error("dev-signin: could not resolve user:", lc, msg);
+        return NextResponse.json({ error: `Could not locate account: ${msg}` }, { status: 500 });
       }
       userId = linkData.user.id;
-      // Ensure correct password and confirmed email
+
+      // Ensure email is confirmed
       await admin.auth.admin.updateUserById(userId, {
-        password: DEV_PASSWORD,
         email_confirm: true,
         user_metadata: { name: info.name, phone: info.phone },
       });
@@ -90,15 +79,12 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error("dev-signin: auth.admin error:", err);
     return NextResponse.json(
-      { error: `Auth admin error: ${err instanceof Error ? err.message : String(err)}` },
+      { error: `Auth error: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 }
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = admin as any;
-
-  // Upsert profile
+  // ── Step 2: Upsert profile ─────────────────────────────────────────────
   try {
     const { error: profErr } = await db.from("profiles").upsert({
       id: userId, name: info.name, phone: info.phone, email: lc,
@@ -108,7 +94,7 @@ export async function POST(request: NextRequest) {
     console.error("dev-signin: profile upsert error:", err);
   }
 
-  // Upsert course_accounts for course logins
+  // ── Step 3: Upsert course_accounts (course logins only) ───────────────
   if (course) {
     try {
       const { data: existing, error: selectErr } = await db
@@ -118,7 +104,6 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (selectErr) {
-        console.error("dev-signin: course_accounts select error:", selectErr.message);
         return NextResponse.json(
           { error: `course_accounts lookup failed: ${selectErr.message}` },
           { status: 500 }
@@ -135,7 +120,6 @@ export async function POST(request: NextRequest) {
           status: "active",
         });
         if (insertErr) {
-          console.error("dev-signin: course_accounts insert error:", insertErr.message);
           return NextResponse.json(
             { error: `course_accounts insert failed: ${insertErr.message}` },
             { status: 500 }
@@ -147,7 +131,6 @@ export async function POST(request: NextRequest) {
           .eq("id", existing.id);
       }
     } catch (err) {
-      console.error("dev-signin: course_accounts error:", err);
       return NextResponse.json(
         { error: `course_accounts error: ${err instanceof Error ? err.message : String(err)}` },
         { status: 500 }
@@ -155,5 +138,36 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Step 4: Generate a real sign-in link ───────────────────────────────
+  // Using a magic link is more reliable than signInWithPassword because it
+  // goes through Supabase's server, which sets HttpOnly session cookies
+  // properly — no cookie timing issues with client-side navigation.
+  const origin =
+    request.headers.get("origin") ??
+    request.headers.get("referer")?.match(/^https?:\/\/[^/]+/)?.[0] ??
+    "";
+  const nextParam = course ? "?next=/course-dashboard" : "";
+  const redirectTo = `${origin}/auth/callback${nextParam}`;
+
+  try {
+    const { data: signInLink, error: linkGenErr } = await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email: lc,
+      options: { redirectTo },
+    });
+
+    if (!linkGenErr && signInLink?.properties?.action_link) {
+      return NextResponse.json({
+        ready: true,
+        isCourse: !!course,
+        loginUrl: signInLink.properties.action_link,
+      });
+    }
+    console.warn("dev-signin: generateLink for sign-in failed:", linkGenErr?.message);
+  } catch (err) {
+    console.warn("dev-signin: generateLink threw:", err);
+  }
+
+  // Fallback: client will use signInWithPassword (password must be set)
   return NextResponse.json({ ready: true, isCourse: !!course });
 }
