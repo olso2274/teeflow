@@ -177,6 +177,17 @@ export default function AuthModal({
                     {loading ? "Sending link..." : "Continue"}
                   </button>
                 </form>
+
+                <p className="mt-5 text-center text-xs text-gray-400">
+                  Golf course?{" "}
+                  <a
+                    href="/course-signup"
+                    className="font-medium text-primary hover:underline"
+                    onClick={onClose}
+                  >
+                    Click here to list your course
+                  </a>
+                </p>
               </>
             ) : (
               /* ── Email sent confirmation ── */

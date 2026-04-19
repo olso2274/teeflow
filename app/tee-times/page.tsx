@@ -20,6 +20,7 @@ import {
   Star,
   BookOpen,
   Share2,
+  Flag,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -43,6 +44,10 @@ interface TeeTimeResult {
   status: string;
   booking_url: string;
   cps_direct?: boolean;
+  manual?: boolean;
+  course_posted?: boolean;
+  special_note?: string | null;
+  is_last_minute?: boolean;
   duration_minutes?: number;
 }
 
@@ -78,6 +83,8 @@ function TeeTimesContent() {
   const [courseFilter, setCourseFilter] = useState("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showLiveOnly, setShowLiveOnly] = useState(false);
+  const [showCoursePostedOnly, setShowCoursePostedOnly] = useState(false);
   const [favoriteCourses, setFavoriteCourses] = useState<Set<string>>(new Set());
 
   // User session
@@ -129,12 +136,17 @@ function TeeTimesContent() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/scrape-tee-times?date=${date}&startHour=${startHour}&endHour=${endHour}`
-      );
-      if (!res.ok) throw new Error("Failed to load tee times");
-      const data = await res.json();
-      let times: TeeTimeResult[] = data.tee_times ?? [];
+      const [scrapeRes, courseRes] = await Promise.all([
+        fetch(`/api/scrape-tee-times?date=${date}&startHour=${startHour}&endHour=${endHour}`),
+        fetch(`/api/course-submitted-times?date=${date}&startHour=${startHour}&endHour=${endHour}`),
+      ]);
+      if (!scrapeRes.ok) throw new Error("Failed to load tee times");
+      const scrapeData = await scrapeRes.json();
+      const courseData = courseRes.ok ? await courseRes.json() : { times: [] };
+      let times: TeeTimeResult[] = [
+        ...(scrapeData.tee_times ?? []),
+        ...(courseData.times ?? []),
+      ];
 
       // Distance calc (non-blocking)
       if (userLocation && times.length > 0) {
@@ -193,6 +205,16 @@ function TeeTimesContent() {
       result = result.filter((t) => favoriteCourses.has(t.course_id));
     }
 
+    // Filter to live tee times only (exclude "contact course directly" cards)
+    if (showLiveOnly) {
+      result = result.filter((t) => !t.manual);
+    }
+
+    // Filter to course-posted times only
+    if (showCoursePostedOnly) {
+      result = result.filter((t) => t.course_posted);
+    }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price":
@@ -210,7 +232,7 @@ function TeeTimesContent() {
       }
     });
     return result;
-  }, [teeTimes, courseFilter, sortBy, showFavoritesOnly, favoriteCourses]);
+  }, [teeTimes, courseFilter, sortBy, showFavoritesOnly, showLiveOnly, showCoursePostedOnly, favoriteCourses]);
 
   const displayDate = date
     ? format(parseISO(date), "EEEE, MMMM d, yyyy")
@@ -365,6 +387,32 @@ function TeeTimesContent() {
                 <span className="hidden sm:inline">Favorites</span>
               </button>
             )}
+
+            {/* Live tee times filter */}
+            <button
+              onClick={() => setShowLiveOnly(!showLiveOnly)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition ${
+                showLiveOnly
+                  ? "sort-active"
+                  : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full flex-shrink-0 ${showLiveOnly ? "bg-green-400" : "bg-gray-300"}`} />
+              <span>Live Times Only</span>
+            </button>
+
+            {/* Course-posted filter */}
+            <button
+              onClick={() => setShowCoursePostedOnly(!showCoursePostedOnly)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition ${
+                showCoursePostedOnly
+                  ? "sort-active"
+                  : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Flag className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Course Posted</span>
+            </button>
 
             {/* Course filter */}
             {courses.length > 1 && (
@@ -653,6 +701,11 @@ Found on RubeGolf: www.rubegolf.com`;
             Direct
           </span>
         )}
+        {teeTime.course_posted && (
+          <span className="ml-2 flex-shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+            {teeTime.is_last_minute ? "Last Minute" : "Course Posted"}
+          </span>
+        )}
       </div>
 
       {/* Body */}
@@ -691,6 +744,18 @@ Found on RubeGolf: www.rubegolf.com`;
             Book directly on the course website for live availability.
           </p>
         )}
+        {teeTime.manual && (
+          <p className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            Contact course directly for tee time availability.
+          </p>
+        )}
+        {teeTime.course_posted && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            {teeTime.special_note
+              ? teeTime.special_note
+              : "Posted directly by the course. Call to book."}
+          </p>
+        )}
       </div>
 
       {/* Book button */}
@@ -699,7 +764,7 @@ Found on RubeGolf: www.rubegolf.com`;
           onClick={handleBook}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98]"
         >
-          {teeTime.cps_direct ? "View on Course Site" : "Book Now"}
+          {teeTime.course_posted ? "Call Course" : teeTime.cps_direct ? "View on Course Site" : teeTime.manual ? "Call Course" : "Book Now"}
           <ExternalLink className="h-3.5 w-3.5" />
         </button>
       </div>
