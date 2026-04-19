@@ -65,26 +65,26 @@ export async function POST(request: NextRequest) {
     if (created?.user) {
       userId = created.user.id;
     } else {
-      // Already exists — page through users to find them
-      let found: string | null = null;
-      for (let page = 1; page <= 10 && !found; page++) {
-        const { data: list } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
-        const match = list?.users?.find((u) => u.email === lc);
-        if (match) { found = match.id; break; }
-        if ((list?.users?.length ?? 0) < 1000) break;
-      }
-      if (!found) {
-        const errMsg = createErr?.message ?? "unknown";
-        console.error("dev-signin: Could not find or create user:", lc, createErr);
+      // User already exists — use generateLink to resolve their ID without pagination
+      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "magiclink",
+        email: lc,
+      });
+      if (linkErr || !linkData?.user) {
+        const createMsg = createErr?.message ?? "unknown";
+        const linkMsg = linkErr?.message ?? "generateLink returned no user";
+        console.error("dev-signin: lookup failed:", lc, createMsg, linkMsg);
         return NextResponse.json(
-          { error: `Could not find or create user (${errMsg}).` },
+          { error: `Could not locate account (${createMsg}). Lookup error: ${linkMsg}` },
           { status: 500 }
         );
       }
-      userId = found;
+      userId = linkData.user.id;
+      // Ensure correct password and confirmed email
       await admin.auth.admin.updateUserById(userId, {
         password: DEV_PASSWORD,
         email_confirm: true,
+        user_metadata: { name: info.name, phone: info.phone },
       });
     }
   } catch (err) {
