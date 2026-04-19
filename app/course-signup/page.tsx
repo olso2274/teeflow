@@ -153,13 +153,12 @@ export default function CourseSignupPage() {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="jane@braemar.com"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
                     onChange={(e) => {
                       setEmail(e.target.value);
                       setIsBypass(BYPASS_COURSE_EMAILS.has(e.target.value.trim().toLowerCase()));
                     }}
+                    placeholder="jane@braemar.com"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
                     required
                   />
                 </div>
