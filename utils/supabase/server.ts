@@ -12,18 +12,21 @@ export const createClient = async () => {
     supabaseKey!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll();
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options: any }>) {
+        set(name: string, value: string, options: any) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
+            cookieStore.set(name, value, options);
           } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing
-            // user sessions.
+            // Called from a Server Component — cookies can only be set in middleware or route handlers
+          }
+        },
+        remove(name: string, options: any) {
+          try {
+            cookieStore.set(name, "", { ...options, maxAge: 0 });
+          } catch {
+            // Called from a Server Component
           }
         },
       },
