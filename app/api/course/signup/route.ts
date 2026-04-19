@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to send sign-in email." }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, existing: false });
   } catch (err) {
     console.error("Course signup error:", err);
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });

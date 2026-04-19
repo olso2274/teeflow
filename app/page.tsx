@@ -93,6 +93,8 @@ export default function Home() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setCurrentUser(null);
+    // Clear any pending search so a new user starts fresh
+    try { sessionStorage.removeItem("rubegolf_pending_search"); } catch { /* no-op */ }
   };
 
   const buildSearchUrl = (date: Date, startHour: number, endHour: number) => {

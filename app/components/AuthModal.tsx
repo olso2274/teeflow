@@ -22,11 +22,7 @@ interface AuthModalProps {
   onSuccess: (userId: string) => void;
 }
 
-export default function AuthModal({
-  open,
-  onClose,
-  onSuccess,
-}: AuthModalProps) {
+export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -65,7 +61,6 @@ export default function AuthModal({
     setLoading(true);
     setError(null);
     try {
-      // Step 1: ensure user exists server-side
       const res = await fetch("/api/dev-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,7 +69,6 @@ export default function AuthModal({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
-      // Step 2: sign in with password on the client
       const supabase = createClient();
       const { data: session, error: signInErr } = await supabase.auth.signInWithPassword({
         email: emailVal.trim().toLowerCase(),
@@ -117,9 +111,11 @@ export default function AuthModal({
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
       const { error: signInError } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
+        email: normalizedEmail,
         options: {
           shouldCreateUser: true,
           data: { name: name.trim(), phone: phone.trim() },
@@ -129,39 +125,38 @@ export default function AuthModal({
 
       if (signInError) throw signInError;
 
-      // Check if user already has a session (returning user)
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
+      // If the user already has an active session for THIS email, sign them in immediately
+      // (don't let a course session bleed through — only match on same email)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email?.toLowerCase() === normalizedEmail) {
         await supabase.from("profiles").upsert({
           id: user.id,
           name: name.trim(),
           phone: phone.trim(),
-          email: user.email ?? email.trim(),
+          email: user.email,
         });
-        saveToStorage(name.trim(), email.trim(), phone.trim());
+        saveToStorage(name.trim(), normalizedEmail, phone.trim());
         onSuccess(user.id);
         return;
       }
 
-      saveToStorage(name.trim(), email.trim(), phone.trim());
+      saveToStorage(name.trim(), normalizedEmail, phone.trim());
       setEmailSent(true);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : "Something went wrong.";
+      const msg = err instanceof Error ? err.message : "Something went wrong.";
       setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Reset state when modal closes
+  // Reset transient state when modal closes
   useEffect(() => {
     if (!open) {
       const timer = setTimeout(() => {
         setEmailSent(false);
         setError(null);
+        setLoading(false);
       }, 300);
       return () => clearTimeout(timer);
     }
@@ -294,7 +289,6 @@ export default function AuthModal({
                 </p>
               </>
             ) : (
-              /* ── Email sent confirmation ── */
               <div className="text-center py-4">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50">
                   <Mail className="h-7 w-7 text-primary" />
@@ -321,10 +315,7 @@ export default function AuthModal({
 
                 <div className="mt-6 flex items-center justify-center gap-4">
                   <button
-                    onClick={() => {
-                      setEmailSent(false);
-                      setError(null);
-                    }}
+                    onClick={() => { setEmailSent(false); setError(null); }}
                     className="text-sm text-gray-500 hover:text-gray-700 transition"
                   >
                     Try a different email
