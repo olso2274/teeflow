@@ -103,8 +103,13 @@ export default function AuthModal({
     setLoading(true);
     setError(null);
 
-    if (!name.trim() || !email.trim() || !phone.trim()) {
-      setError("All fields are required.");
+    if (!name.trim() || !email.trim()) {
+      setError("Name and email are required.");
+      setLoading(false);
+      return;
+    }
+    if (!isReturning && !phone.trim()) {
+      setError("Phone number is required.");
       setLoading(false);
       return;
     }
@@ -235,7 +240,7 @@ export default function AuthModal({
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Phone
+                      Phone{isReturning && <span className="ml-1 text-gray-400 font-normal text-xs">(optional)</span>}
                     </label>
                     <input
                       type="tel"
@@ -243,7 +248,7 @@ export default function AuthModal({
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="(612) 555-0123"
                       className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
-                      required
+                      required={!isReturning}
                     />
                   </div>
 

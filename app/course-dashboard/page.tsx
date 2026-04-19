@@ -142,7 +142,7 @@ export default function CourseDashboardPage() {
       setTeeTime("08:00");
       loadTimes();
 
-      setTimeout(() => setSubmitSuccess(false), 4000);
+      setTimeout(() => setSubmitSuccess(false), 6000);
     } catch {
       setFormError("Network error. Please try again.");
     } finally {
@@ -151,6 +151,7 @@ export default function CourseDashboardPage() {
   };
 
   const handleCancel = async (id: string) => {
+    if (!window.confirm("Remove this tee time? Golfers will no longer see it.")) return;
     const res = await fetch("/api/course/my-times", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -181,6 +182,9 @@ export default function CourseDashboardPage() {
   };
 
   const upcomingTimes = times.filter((t) => t.is_active);
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const todayTimes = upcomingTimes.filter((t) => t.date === todayStr);
+  const lastMinuteTimes = upcomingTimes.filter((t) => t.is_last_minute);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -230,6 +234,20 @@ export default function CourseDashboardPage() {
             &mdash; they&apos;ll appear in search results immediately.
           </p>
         </motion.div>
+
+        {/* Stats */}
+        <div className="mb-6 grid grid-cols-3 gap-3">
+          {[
+            { label: "Total Posted", value: upcomingTimes.length, color: "text-primary" },
+            { label: "Today", value: todayTimes.length, color: "text-amber-600" },
+            { label: "Last Minute", value: lastMinuteTimes.length, color: "text-emerald-600" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="rounded-xl bg-white border border-gray-100 shadow-sm px-4 py-3 text-center">
+              <p className={`text-2xl font-bold ${color}`}>{value}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+            </div>
+          ))}
+        </div>
 
         {/* Success banner */}
         <AnimatePresence>
@@ -381,9 +399,14 @@ export default function CourseDashboardPage() {
 
                     {/* Note */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        Special note <span className="text-gray-400 font-normal">(optional)</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-600">
+                          Special note <span className="text-gray-400 font-normal">(optional)</span>
+                        </label>
+                        <span className={`text-xs ${note.length >= 100 ? "text-amber-500" : "text-gray-400"}`}>
+                          {note.length}/120
+                        </span>
+                      </div>
                       <input
                         type="text"
                         value={note}

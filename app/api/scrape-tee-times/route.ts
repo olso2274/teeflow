@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 /* ═══════════════════════════════════════════
    API Types
@@ -380,7 +380,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = await createClient();
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+    );
 
     const { data: courses, error } = await supabase
       .from("golf_courses")
@@ -613,21 +616,18 @@ export async function GET(request: NextRequest) {
       manual: true,
     }));
 
-    // Execute all scrapers in parallel
-    const [foreupResults, golfnowResults, cpsResults, chronogolfResults, teesnapResults] =
-      await Promise.all([
-        Promise.all(foreupPromises),
-        Promise.all(golfnowPromises),
-        Promise.all(cpsPromises),
-        Promise.all(chronogolfPromises),
-        Promise.all(teesnapPromises),
-      ]);
+    // Execute all scrapers in parallel — allSettled so one type failing doesn't kill others
+    const settled = await Promise.allSettled([
+      Promise.allSettled(foreupPromises).then((r) => r.flatMap((s) => s.status === "fulfilled" ? s.value : [])),
+      Promise.allSettled(golfnowPromises).then((r) => r.flatMap((s) => s.status === "fulfilled" ? s.value : [])),
+      Promise.allSettled(cpsPromises).then((r) => r.flatMap((s) => s.status === "fulfilled" ? s.value : [])),
+      Promise.allSettled(chronogolfPromises).then((r) => r.flatMap((s) => s.status === "fulfilled" ? s.value : [])),
+      Promise.allSettled(teesnapPromises).then((r) => r.flatMap((s) => s.status === "fulfilled" ? s.value : [])),
+    ]);
 
-    foreupResults.forEach((batch) => results.push(...batch));
-    golfnowResults.forEach((batch) => results.push(...batch));
-    cpsResults.forEach((batch) => results.push(...batch));
-    chronogolfResults.forEach((batch) => results.push(...batch));
-    teesnapResults.forEach((batch) => results.push(...batch));
+    for (const s of settled) {
+      if (s.status === "fulfilled") s.value.forEach((batch) => results.push(...batch));
+    }
     results.push(...manualResults);
 
     // Sort: live tee times first by time, manual/placeholder last

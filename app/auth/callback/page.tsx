@@ -3,10 +3,11 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
+import Link from "next/link";
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={<CallbackShell message="Signing you in..." />}>
+    <Suspense fallback={<CallbackShell failed={false} />}>
       <CallbackHandler />
     </Suspense>
   );
@@ -15,7 +16,7 @@ export default function AuthCallbackPage() {
 function CallbackHandler() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [message, setMessage] = useState("Signing you in...");
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -23,7 +24,6 @@ function CallbackHandler() {
     let mounted = true;
 
     const redirectAfterAuth = () => {
-      // ?next= param (used by course portal magic links)
       const next = searchParams.get("next");
       if (next && next.startsWith("/")) {
         router.replace(next);
@@ -50,6 +50,11 @@ function CallbackHandler() {
           if (mounted) redirectAfterAuth();
           return;
         }
+        // Code exchange failed — show error rather than silently spinning
+        if (mounted) {
+          setFailed(true);
+          return;
+        }
       }
 
       // 2. Check if Supabase already processed hash tokens
@@ -71,14 +76,11 @@ function CallbackHandler() {
         }
       });
 
-      // 4. Timeout fallback
+      // 4. Timeout fallback — show error instead of silently redirecting
       setTimeout(() => {
         subscription.unsubscribe();
-        if (mounted) {
-          setMessage("Redirecting...");
-          router.replace("/");
-        }
-      }, 8000);
+        if (mounted) setFailed(true);
+      }, 10000);
     };
 
     handleAuth();
@@ -88,10 +90,32 @@ function CallbackHandler() {
     };
   }, [router, searchParams]);
 
-  return <CallbackShell message={message} />;
+  return <CallbackShell failed={failed} />;
 }
 
-function CallbackShell({ message }: { message: string }) {
+function CallbackShell({ failed }: { failed: boolean }) {
+  if (failed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="text-center max-w-sm">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
+            <span className="text-2xl">&#9888;</span>
+          </div>
+          <h2 className="text-lg font-bold text-gray-900">Sign-in link expired</h2>
+          <p className="mt-2 text-sm text-gray-500">
+            This link may have already been used or has expired. Sign-in links are valid for 1 hour.
+          </p>
+          <Link
+            href="/"
+            className="mt-6 inline-block rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 transition"
+          >
+            Back to RubeGolf
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center">
@@ -99,7 +123,7 @@ function CallbackShell({ message }: { message: string }) {
           <div className="absolute inset-0 rounded-full border-2 border-gray-200" />
           <div className="absolute inset-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
-        <p className="text-sm font-medium text-gray-600">{message}</p>
+        <p className="text-sm font-medium text-gray-600">Signing you in...</p>
         <p className="mt-1 text-xs text-gray-400">
           You&apos;ll be redirected automatically
         </p>

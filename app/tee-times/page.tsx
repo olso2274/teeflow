@@ -21,6 +21,7 @@ import {
   BookOpen,
   Share2,
   Flag,
+  Phone,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -754,23 +755,44 @@ Found on RubeGolf: www.rubegolf.com`;
             Contact course directly for tee time availability.
           </p>
         )}
-        {teeTime.course_posted && (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            {teeTime.special_note
-              ? teeTime.special_note
-              : "Posted directly by the course. Call to book."}
-          </p>
-        )}
+        {teeTime.course_posted && (() => {
+          const rawPhone = teeTime.booking_url?.startsWith("tel:")
+            ? teeTime.booking_url.slice(4)
+            : null;
+          const displayPhone = rawPhone?.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3") ?? null;
+          return (
+            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 space-y-1">
+              {teeTime.special_note && (
+                <p className="text-xs text-emerald-700">{teeTime.special_note}</p>
+              )}
+              {displayPhone && (
+                <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                  <Phone className="h-3 w-3 flex-shrink-0" />
+                  {displayPhone}
+                </p>
+              )}
+              {!teeTime.special_note && !displayPhone && (
+                <p className="text-xs text-emerald-700">Posted directly by the course. Call to book.</p>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Book button */}
       <div className="mt-auto border-t border-gray-100 px-5 py-3">
         <button
           onClick={handleBook}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98]"
+          disabled={!teeTime.booking_url}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {teeTime.course_posted ? "Call Course" : teeTime.cps_direct ? "View on Course Site" : teeTime.manual ? "Call Course" : "Book Now"}
-          <ExternalLink className="h-3.5 w-3.5" />
+          {teeTime.course_posted
+            ? <><Phone className="h-3.5 w-3.5" /> Call Course</>
+            : teeTime.cps_direct
+            ? <><ExternalLink className="h-3.5 w-3.5" /> View on Course Site</>
+            : teeTime.manual
+            ? <><Phone className="h-3.5 w-3.5" /> Call Course</>
+            : <><ExternalLink className="h-3.5 w-3.5" /> Book Now</>}
         </button>
       </div>
     </motion.div>
