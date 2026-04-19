@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/utils/supabase/client";
 import { X, Mail, CheckCircle2 } from "lucide-react";
 
+const STORAGE_KEY = "rubegolf_user";
+
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
@@ -19,11 +21,37 @@ export default function AuthModal({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [isReturning, setIsReturning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
 
   const supabase = createClient();
+
+  // Pre-populate from localStorage when modal opens
+  useEffect(() => {
+    if (!open) return;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const { name: savedName, email: savedEmail, phone: savedPhone } = JSON.parse(saved);
+        if (savedEmail) {
+          setName(savedName ?? "");
+          setEmail(savedEmail);
+          setPhone(savedPhone ?? "");
+          setIsReturning(true);
+        }
+      }
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [open]);
+
+  const saveToStorage = (n: string, e: string, p: string) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: n, email: e, phone: p }));
+    } catch { /* no-op */ }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,11 +87,12 @@ export default function AuthModal({
           phone: phone.trim(),
           email: user.email ?? email.trim(),
         });
+        saveToStorage(name.trim(), email.trim(), phone.trim());
         onSuccess(user.id);
         return;
       }
 
-      // Email sent — show confirmation
+      saveToStorage(name.trim(), email.trim(), phone.trim());
       setEmailSent(true);
     } catch (err: unknown) {
       const msg =
@@ -84,6 +113,8 @@ export default function AuthModal({
       return () => clearTimeout(timer);
     }
   }, [open]);
+
+  const firstName = name.trim().split(" ")[0];
 
   return (
     <AnimatePresence>
@@ -113,11 +144,14 @@ export default function AuthModal({
               <>
                 <div className="mb-6">
                   <h2 className="text-xl font-bold text-gray-900">
-                    Login or create your account
+                    {isReturning && firstName
+                      ? `Welcome back, ${firstName}!`
+                      : "Login or create your account"}
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
-                    We&apos;ll email you a sign-in link &mdash; no password
-                    needed.
+                    {isReturning
+                      ? "We\u2019ll send a sign-in link to your email \u2014 no password needed."
+                      : "We\u2019ll email you a sign-in link \u2014 no password needed."}
                   </p>
                 </div>
 
@@ -129,7 +163,7 @@ export default function AuthModal({
                     <input
                       type="text"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => { setName(e.target.value); setIsReturning(false); }}
                       placeholder="Jared Smith"
                       className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
                       required
@@ -143,7 +177,7 @@ export default function AuthModal({
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setIsReturning(false); }}
                       placeholder="jared@example.com"
                       className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
                       required
