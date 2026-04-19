@@ -35,6 +35,9 @@ export default function AuthModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const supabase = createClient();
 
@@ -240,7 +243,7 @@ export default function AuthModal({
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Phone{isReturning && <span className="ml-1 text-gray-400 font-normal text-xs">(optional)</span>}
+                      Phone{mounted && isReturning && <span className="ml-1 text-gray-400 font-normal text-xs">(optional)</span>}
                     </label>
                     <input
                       type="tel"

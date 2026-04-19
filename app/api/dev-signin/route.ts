@@ -16,38 +16,51 @@ const BYPASS_COURSES: Record<string, { name: string; phone: string; courseName: 
 const DEV_PASSWORD = "RubeGolf2024!";
 
 export async function POST(request: NextRequest) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!serviceRoleKey || !supabaseUrl) {
+    return NextResponse.json({ error: "Dev login not configured (missing env vars)." }, { status: 503 });
+  }
+
+  let email: string;
   try {
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const body = await request.json();
+    email = body.email;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
 
-    if (!serviceRoleKey || !supabaseUrl) {
-      return NextResponse.json({ error: "Dev login not configured." }, { status: 503 });
-    }
+  if (!email) return NextResponse.json({ error: "Missing email." }, { status: 400 });
 
-    const { email } = await request.json();
-    if (!email) return NextResponse.json({ error: "Missing email." }, { status: 400 });
+  const lc = email.trim().toLowerCase();
+  const golfer = BYPASS_GOLFERS[lc];
+  const course = BYPASS_COURSES[lc];
+  if (!golfer && !course) {
+    return NextResponse.json({ error: "Not a bypass account." }, { status: 403 });
+  }
 
-    const lc = email.trim().toLowerCase();
-    const golfer = BYPASS_GOLFERS[lc];
-    const course = BYPASS_COURSES[lc];
-    if (!golfer && !course) {
-      return NextResponse.json({ error: "Not a bypass account." }, { status: 403 });
-    }
+  const info = golfer ?? course!;
 
-    const info = golfer ?? course!;
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
+  let admin: ReturnType<typeof createClient>;
+  try {
+    admin = createClient(supabaseUrl, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+  } catch (err) {
+    console.error("dev-signin: createClient failed:", err);
+    return NextResponse.json({ error: "Failed to init admin client." }, { status: 500 });
+  }
 
-    // Try to create user; if they exist already, find and update them
+  // Try to create user; if they exist already, find and update them
+  let userId: string;
+  try {
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: lc,
       password: DEV_PASSWORD,
       email_confirm: true,
       user_metadata: { name: info.name, phone: info.phone },
     });
-
-    let userId: string;
 
     if (created?.user) {
       userId = created.user.id;
@@ -61,8 +74,12 @@ export async function POST(request: NextRequest) {
         if ((list?.users?.length ?? 0) < 1000) break;
       }
       if (!found) {
-        console.error("Could not find or create user:", lc, createErr);
-        return NextResponse.json({ error: "Could not find or create user." }, { status: 500 });
+        const errMsg = createErr?.message ?? "unknown";
+        console.error("dev-signin: Could not find or create user:", lc, createErr);
+        return NextResponse.json(
+          { error: `Could not find or create user (${errMsg}).` },
+          { status: 500 }
+        );
       }
       userId = found;
       await admin.auth.admin.updateUserById(userId, {
@@ -70,20 +87,46 @@ export async function POST(request: NextRequest) {
         email_confirm: true,
       });
     }
+  } catch (err) {
+    console.error("dev-signin: auth.admin error:", err);
+    return NextResponse.json(
+      { error: `Auth admin error: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    );
+  }
 
-    // Upsert profile
-    await admin.from("profiles").upsert({ id: userId, name: info.name, phone: info.phone, email: lc });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = admin as any;
 
-    // Upsert course_accounts for course logins
-    if (course) {
-      const { data: existing } = await admin
+  // Upsert profile
+  try {
+    const { error: profErr } = await db.from("profiles").upsert({
+      id: userId, name: info.name, phone: info.phone, email: lc,
+    });
+    if (profErr) console.warn("dev-signin: profile upsert warning:", profErr.message);
+  } catch (err) {
+    console.error("dev-signin: profile upsert error:", err);
+  }
+
+  // Upsert course_accounts for course logins
+  if (course) {
+    try {
+      const { data: existing, error: selectErr } = await db
         .from("course_accounts")
         .select("id")
         .eq("email", lc)
         .maybeSingle();
 
+      if (selectErr) {
+        console.error("dev-signin: course_accounts select error:", selectErr.message);
+        return NextResponse.json(
+          { error: `course_accounts lookup failed: ${selectErr.message}` },
+          { status: 500 }
+        );
+      }
+
       if (!existing) {
-        await admin.from("course_accounts").insert({
+        const { error: insertErr } = await db.from("course_accounts").insert({
           user_id: userId,
           course_name: course.courseName,
           contact_name: course.name,
@@ -91,17 +134,26 @@ export async function POST(request: NextRequest) {
           phone: course.phone,
           status: "active",
         });
+        if (insertErr) {
+          console.error("dev-signin: course_accounts insert error:", insertErr.message);
+          return NextResponse.json(
+            { error: `course_accounts insert failed: ${insertErr.message}` },
+            { status: 500 }
+          );
+        }
       } else {
-        await admin.from("course_accounts")
+        await db.from("course_accounts")
           .update({ user_id: userId, status: "active" })
           .eq("id", existing.id);
       }
+    } catch (err) {
+      console.error("dev-signin: course_accounts error:", err);
+      return NextResponse.json(
+        { error: `course_accounts error: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 500 }
+      );
     }
-
-    // Return confirmation — client will call signInWithPassword directly
-    return NextResponse.json({ ready: true, isCourse: !!course });
-  } catch (err) {
-    console.error("dev-signin error:", err);
-    return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
+
+  return NextResponse.json({ ready: true, isCourse: !!course });
 }
