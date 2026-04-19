@@ -23,6 +23,12 @@ function CallbackHandler() {
     let mounted = true;
 
     const redirectAfterAuth = () => {
+      // ?next= param (used by course portal magic links)
+      const next = searchParams.get("next");
+      if (next && next.startsWith("/")) {
+        router.replace(next);
+        return;
+      }
       try {
         const pending = sessionStorage.getItem("rubegolf_pending_search");
         if (pending) {

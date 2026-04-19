@@ -1,0 +1,62 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const date = searchParams.get("date");
+    const startHour = parseInt(searchParams.get("startHour") ?? "6");
+    const endHour = parseInt(searchParams.get("endHour") ?? "18");
+
+    if (!date) {
+      return NextResponse.json({ times: [] });
+    }
+
+    const supabase = await createClient();
+
+    const { data, error } = await supabase
+      .from("course_tee_times")
+      .select("*")
+      .eq("date", date)
+      .eq("is_active", true)
+      .order("tee_time", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ times: [] });
+    }
+
+    // Filter by time window
+    const filtered = (data ?? []).filter((t) => {
+      const [hStr] = (t.tee_time as string).split(":");
+      const h = parseInt(hStr);
+      return h >= startHour && h < endHour;
+    });
+
+    // Shape into TeeTimeResult format
+    const shaped = filtered.map((t) => ({
+      id: `course-${t.id}`,
+      course_id: t.course_id ?? `course-account-${t.course_account_id}`,
+      course: {
+        id: t.course_id ?? `course-account-${t.course_account_id}`,
+        name: t.course_name,
+        address: t.course_address ?? "",
+        lat: 0,
+        lng: 0,
+        booking_url: "",
+      },
+      start_time: `${t.date}T${t.tee_time}`,
+      players_needed: t.spots_available,
+      price_cents: t.price_cents ?? null,
+      status: "available",
+      booking_url: "",
+      course_posted: true,
+      special_note: t.special_note ?? null,
+      is_last_minute: t.is_last_minute,
+    }));
+
+    return NextResponse.json({ times: shaped });
+  } catch (err) {
+    console.error("Course submitted times error:", err);
+    return NextResponse.json({ times: [] });
+  }
+}

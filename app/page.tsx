@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
 import { useRouter } from "next/navigation";
-import { LogOut, User, MapPin, Zap, MousePointerClick } from "lucide-react";
+import { LogOut, User, MapPin, Zap, MousePointerClick, Clock, Users, ArrowRight } from "lucide-react";
 import SearchForm from "./components/SearchForm";
 import AuthModal from "./components/AuthModal";
 import { createClient } from "@/utils/supabase/client";
@@ -13,6 +13,16 @@ interface CurrentUser {
   id: string;
   name: string;
   email: string;
+}
+
+interface LastMinuteOpening {
+  id: string;
+  course_name: string;
+  course_address: string | null;
+  tee_time: string;
+  spots_available: number;
+  price_cents: number | null;
+  special_note: string | null;
 }
 
 export default function Home() {
@@ -27,6 +37,7 @@ export default function Home() {
   } | null>(null);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [lastMinuteOpenings, setLastMinuteOpenings] = useState<LastMinuteOpening[]>([]);
 
   /* ── Load user on mount + listen for auth changes ── */
   useEffect(() => {
@@ -69,6 +80,14 @@ export default function Home() {
     });
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Load last-minute openings on mount
+  useEffect(() => {
+    fetch("/api/last-minute-openings")
+      .then((r) => r.json())
+      .then((d) => setLastMinuteOpenings(d.openings ?? []))
+      .catch(() => null);
   }, []);
 
   const handleSignOut = async () => {
@@ -227,6 +246,79 @@ export default function Home() {
           />
         </motion.div>
       </div>
+
+      {/* ── Last Minute Openings ── */}
+      {lastMinuteOpenings.length > 0 && (
+        <section className="mx-auto max-w-5xl px-4 pt-10 sm:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="rounded-2xl bg-amber-50 border border-amber-100 p-5 sm:p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                  <Zap className="h-4 w-4 text-amber-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-amber-900">Last-Minute Openings Today</h2>
+                  <p className="text-xs text-amber-600">Posted directly by courses &mdash; grab one now</p>
+                </div>
+              </div>
+              <button
+                onClick={() =>
+                  router.push(`/tee-times?date=${format(new Date(), "yyyy-MM-dd")}&startHour=6&endHour=18`)
+                }
+                className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 transition"
+              >
+                View all <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {lastMinuteOpenings.slice(0, 6).map((o) => {
+                const [hStr, mStr] = o.tee_time.split(":");
+                const h = parseInt(hStr);
+                const ampm = h >= 12 ? "PM" : "AM";
+                const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                const timeLabel = `${h12}:${mStr} ${ampm}`;
+                const price = o.price_cents ? `$${(o.price_cents / 100).toFixed(0)}` : null;
+
+                return (
+                  <div
+                    key={o.id}
+                    className="rounded-xl bg-white border border-amber-100 px-4 py-3 shadow-sm"
+                  >
+                    <p className="font-semibold text-gray-900 text-sm truncate">{o.course_name}</p>
+                    {o.course_address && (
+                      <p className="text-xs text-gray-400 truncate mt-0.5">📍 {o.course_address}</p>
+                    )}
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="flex items-center gap-3 text-sm text-gray-600">
+                        <span className="flex items-center gap-1 font-semibold text-gray-900">
+                          <Clock className="h-3.5 w-3.5 text-amber-500" />
+                          {timeLabel}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-gray-500">
+                          <Users className="h-3 w-3" />
+                          {o.spots_available}
+                        </span>
+                      </div>
+                      {price && <span className="text-sm font-bold text-primary">{price}</span>}
+                    </div>
+                    {o.special_note && (
+                      <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 truncate">
+                        {o.special_note}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        </section>
+      )}
 
       {/* ── How it works ── */}
       <section className="mx-auto max-w-5xl px-4 pb-20 pt-16 sm:px-6">
