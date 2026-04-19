@@ -62,27 +62,40 @@ function CallbackHandler() {
     };
 
     const handleAuth = async () => {
-      // 1. PKCE code exchange (standard magic-link / OTP flow)
+      // 1. Hash fragment tokens (implicit flow — used by admin-generated magic links)
+      //    Supabase SSR doesn't auto-parse the hash, so we do it explicitly.
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      if (hash && hash.includes("access_token")) {
+        const params = new URLSearchParams(hash.slice(1));
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token");
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          if (!error) {
+            if (mounted) redirectAfterAuth();
+            return;
+          }
+        }
+      }
+
+      // 2. PKCE code exchange (standard client-initiated magic-link / OTP flow)
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) {
           if (mounted) redirectAfterAuth();
           return;
         }
-        if (mounted) {
-          setFailed(true);
-          return;
-        }
+        // Code exchange failed — fall through in case session was set another way
       }
 
-      // 2. Session already set (e.g. same-tab OTP that Supabase processed)
+      // 3. Session already set (e.g. same-tab OTP that Supabase processed)
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         if (mounted) redirectAfterAuth();
         return;
       }
 
-      // 3. Wait for hash-token auth state change
+      // 4. Wait for auth state change (last resort)
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
         if (event === "SIGNED_IN") {
           subscription.unsubscribe();
@@ -90,7 +103,7 @@ function CallbackHandler() {
         }
       });
 
-      // 4. Timeout — link was likely expired or already used
+      // 5. Timeout — link was likely expired or already used
       setTimeout(() => {
         subscription.unsubscribe();
         if (mounted) setFailed(true);
