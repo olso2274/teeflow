@@ -14,9 +14,10 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
 
+    // Join course_accounts to get phone number for the "Call Course" button
     const { data, error } = await supabase
       .from("course_tee_times")
-      .select("*")
+      .select("*, course_accounts(phone)")
       .eq("date", date)
       .eq("is_active", true)
       .order("tee_time", { ascending: true });
@@ -33,26 +34,30 @@ export async function GET(request: NextRequest) {
     });
 
     // Shape into TeeTimeResult format
-    const shaped = filtered.map((t) => ({
-      id: `course-${t.id}`,
-      course_id: t.course_id ?? `course-account-${t.course_account_id}`,
-      course: {
-        id: t.course_id ?? `course-account-${t.course_account_id}`,
-        name: t.course_name,
-        address: t.course_address ?? "",
-        lat: 0,
-        lng: 0,
-        booking_url: "",
-      },
-      start_time: `${t.date}T${t.tee_time}`,
-      players_needed: t.spots_available,
-      price_cents: t.price_cents ?? null,
-      status: "available",
-      booking_url: "",
-      course_posted: true,
-      special_note: t.special_note ?? null,
-      is_last_minute: t.is_last_minute,
-    }));
+    const shaped = filtered.map((t) => {
+      const phone = (t.course_accounts as { phone?: string } | null)?.phone ?? null;
+      const bookingUrl = phone ? `tel:${phone.replace(/\D/g, "")}` : "";
+      return {
+        id: `course-${t.id}`,
+        course_id: t.course_id ?? `course-account-${t.course_account_id}`,
+        course: {
+          id: t.course_id ?? `course-account-${t.course_account_id}`,
+          name: t.course_name,
+          address: t.course_address ?? "",
+          lat: 0,
+          lng: 0,
+          booking_url: bookingUrl,
+        },
+        start_time: `${t.date}T${t.tee_time}`,
+        players_needed: t.spots_available,
+        price_cents: t.price_cents ?? null,
+        status: "available",
+        booking_url: bookingUrl,
+        course_posted: true,
+        special_note: t.special_note ?? null,
+        is_last_minute: t.is_last_minute,
+      };
+    });
 
     return NextResponse.json({ times: shaped });
   } catch (err) {

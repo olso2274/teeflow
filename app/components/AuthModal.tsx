@@ -57,6 +57,7 @@ export default function AuthModal({
           id: user.id,
           name: name.trim(),
           phone: phone.trim(),
+          email: user.email ?? email.trim(),
         });
         onSuccess(user.id);
         return;
