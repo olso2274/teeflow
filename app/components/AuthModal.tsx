@@ -62,6 +62,7 @@ export default function AuthModal({
     setLoading(true);
     setError(null);
     try {
+      // Step 1: ensure user exists server-side
       const res = await fetch("/api/dev-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -70,19 +71,19 @@ export default function AuthModal({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
+      // Step 2: sign in with password on the client
       const supabase = createClient();
-      await supabase.auth.setSession({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
+      const { data: session, error: signInErr } = await supabase.auth.signInWithPassword({
+        email: emailVal.trim().toLowerCase(),
+        password: "RubeGolf2024!",
       });
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        saveToStorage(name.trim(), emailVal.trim(), phone.trim());
-        if (data.isCourse) {
-          window.location.href = "/course-dashboard";
-        } else {
-          onSuccess(user.id);
-        }
+      if (signInErr || !session.user) throw new Error(signInErr?.message ?? "Sign-in failed.");
+
+      saveToStorage(name.trim(), emailVal.trim(), phone.trim());
+      if (data.isCourse) {
+        window.location.href = "/course-dashboard";
+      } else {
+        onSuccess(session.user.id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

@@ -31,6 +31,7 @@ export default function CourseSignupPage() {
     setLoading(true);
     setError(null);
     try {
+      // Step 1: ensure user exists server-side
       const res = await fetch("/api/dev-signin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -38,10 +39,14 @@ export default function CourseSignupPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
-      await supabase.auth.setSession({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
+
+      // Step 2: sign in with password on the client
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: "RubeGolf2024!",
       });
+      if (signInErr) throw new Error(signInErr.message);
+
       router.push("/course-dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");

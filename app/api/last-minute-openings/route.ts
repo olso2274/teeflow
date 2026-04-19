@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+    );
     const today = new Date().toISOString().split("T")[0];
 
     const { data, error } = await supabase
@@ -15,12 +18,13 @@ export async function GET() {
       .order("tee_time", { ascending: true });
 
     if (error) {
-      return NextResponse.json({ error: "Failed to load openings." }, { status: 500 });
+      console.error("last-minute-openings error:", error);
+      return NextResponse.json({ openings: [] });
     }
 
     return NextResponse.json({ openings: data ?? [] });
   } catch (err) {
-    console.error("Last minute openings error:", err);
-    return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
+    console.error("last-minute-openings error:", err);
+    return NextResponse.json({ openings: [] });
   }
 }
