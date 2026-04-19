@@ -67,30 +67,26 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
         body: JSON.stringify({ email: emailVal }),
       });
       const data = await res.json();
-      console.log("[dev-signin] status:", res.status, "response:", data);
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
       saveToStorage(name.trim(), emailVal.trim(), phone.trim());
 
-      if (data.loginUrl) {
-        console.log("[dev-signin] navigating to loginUrl");
-        window.location.href = data.loginUrl;
+      if (data.session) {
+        // Server verified OTP and returned a live session — set it locally.
+        // No navigation through Supabase domain needed (avoids Chrome bounce tracking).
+        const supabase = createClient();
+        await supabase.auth.setSession(data.session);
+        if (data.isCourse) {
+          window.location.replace("/course-dashboard");
+        } else {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) onSuccess(user.id);
+          else window.location.replace("/");
+        }
         return;
       }
 
-      console.warn("[dev-signin] no loginUrl in response, trying password fallback");
-      const supabase = createClient();
-      const { data: session, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: emailVal.trim().toLowerCase(),
-        password: "RubeGolf2024!",
-      });
-      if (signInErr || !session.user) throw new Error(signInErr?.message ?? "Sign-in failed.");
-
-      if (data.isCourse) {
-        window.location.href = "/course-dashboard";
-      } else {
-        onSuccess(session.user.id);
-      }
+      throw new Error("No session returned from server.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {

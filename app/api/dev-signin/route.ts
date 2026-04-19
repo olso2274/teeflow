@@ -70,7 +70,6 @@ export async function POST(request: NextRequest) {
       }
       userId = linkData.user.id;
 
-      // Ensure email is confirmed
       await admin.auth.admin.updateUserById(userId, {
         email_confirm: true,
         user_metadata: { name: info.name, phone: info.phone },
@@ -138,44 +137,49 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── Step 4: Generate a real sign-in link ───────────────────────────────
-  // Using a magic link is more reliable than signInWithPassword because it
-  // goes through Supabase's server, which sets HttpOnly session cookies
-  // properly — no cookie timing issues with client-side navigation.
-  const origin =
-    request.headers.get("origin") ??
-    request.headers.get("referer")?.match(/^https?:\/\/[^/]+/)?.[0] ??
-    "";
-  const nextParam = course ? "?next=/course-dashboard" : "";
-  const redirectTo = `${origin}/auth/callback${nextParam}`;
-
+  // ── Step 4: Generate link and verify OTP server-side ──────────────────
+  // Verifying server-side avoids Chrome's bounce tracking mitigation,
+  // which fires when the browser navigates through supabase.co and back.
+  // Instead we extract the token from the generated link and call verifyOtp
+  // here, then return the session to the client so it never leaves our domain.
   try {
-    console.log("dev-signin: generating magic link", { email: lc, redirectTo });
-    const { data: signInLink, error: linkGenErr } = await admin.auth.admin.generateLink({
+    const { data: linkData, error: linkGenErr } = await admin.auth.admin.generateLink({
       type: "magiclink",
       email: lc,
-      options: { redirectTo },
     });
 
-    if (linkGenErr) {
-      console.error("dev-signin: generateLink error:", linkGenErr);
-    } else {
-      console.log("dev-signin: generateLink success, properties:", Object.keys(signInLink?.properties || {}));
+    if (linkGenErr || !linkData?.properties?.action_link) {
+      console.error("dev-signin: generateLink failed:", linkGenErr?.message);
+      return NextResponse.json({ error: "Failed to generate sign-in token." }, { status: 500 });
     }
 
-    if (!linkGenErr && signInLink?.properties?.action_link) {
-      console.log("dev-signin: returning loginUrl");
-      return NextResponse.json({
-        ready: true,
-        isCourse: !!course,
-        loginUrl: signInLink.properties.action_link,
+    // Extract the OTP token from the action_link URL
+    const actionUrl = new URL(linkData.properties.action_link);
+    const otpToken = actionUrl.searchParams.get("token");
+
+    if (otpToken) {
+      // Verify the token on the server — returns a live session
+      const { data: verifyData, error: verifyErr } = await admin.auth.verifyOtp({
+        token_hash: otpToken,
+        type: "magiclink",
       });
+
+      if (!verifyErr && verifyData?.session) {
+        return NextResponse.json({
+          ready: true,
+          isCourse: !!course,
+          session: {
+            access_token: verifyData.session.access_token,
+            refresh_token: verifyData.session.refresh_token,
+          },
+        });
+      }
+
+      console.warn("dev-signin: server verifyOtp failed:", verifyErr?.message);
     }
-    console.warn("dev-signin: generateLink returned no action_link, falling back");
   } catch (err) {
-    console.error("dev-signin: generateLink threw:", err);
+    console.error("dev-signin: OTP verification error:", err);
   }
 
-  // Fallback: client will use signInWithPassword (password must be set)
-  return NextResponse.json({ ready: true, isCourse: !!course });
+  return NextResponse.json({ error: "Could not create session." }, { status: 500 });
 }

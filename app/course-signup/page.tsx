@@ -39,21 +39,15 @@ export default function CourseSignupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
-      // Server returns a Supabase magic link — navigate to it so Supabase
-      // handles session creation with proper HttpOnly cookies server-side.
-      if (data.loginUrl) {
-        window.location.href = data.loginUrl;
+      if (data.session) {
+        // Server verified OTP and returned a live session — set it locally.
+        // No navigation through Supabase domain needed (avoids Chrome bounce tracking).
+        await supabase.auth.setSession(data.session);
+        window.location.replace("/course-dashboard");
         return;
       }
 
-      // Fallback: direct password sign-in (requires password set on account)
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password: "RubeGolf2024!",
-      });
-      if (signInErr) throw new Error(signInErr.message);
-
-      router.push("/course-dashboard");
+      throw new Error("No session returned from server.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
