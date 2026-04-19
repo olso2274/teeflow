@@ -67,18 +67,18 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
         body: JSON.stringify({ email: emailVal }),
       });
       const data = await res.json();
+      console.log("[dev-signin] status:", res.status, "response:", data);
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
       saveToStorage(name.trim(), emailVal.trim(), phone.trim());
 
-      // Server returns a Supabase magic link — navigate to it so Supabase
-      // handles session creation with proper HttpOnly cookies server-side.
       if (data.loginUrl) {
+        console.log("[dev-signin] navigating to loginUrl");
         window.location.href = data.loginUrl;
         return;
       }
 
-      // Fallback: direct password sign-in (requires password set on account)
+      console.warn("[dev-signin] no loginUrl in response, trying password fallback");
       const supabase = createClient();
       const { data: session, error: signInErr } = await supabase.auth.signInWithPassword({
         email: emailVal.trim().toLowerCase(),
