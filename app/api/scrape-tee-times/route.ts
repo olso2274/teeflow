@@ -626,7 +626,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     for (const s of settled) {
-      if (s.status === "fulfilled") s.value.forEach((batch) => results.push(...batch));
+      if (s.status === "fulfilled") results.push(...s.value);
     }
     results.push(...manualResults);
 
