@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowLeft, Mail, CheckCircle2, Flag, Zap } from "lucide-react";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
 
 const BYPASS_COURSE_EMAILS = new Set([
   "eo18@rubegolf.com",
@@ -15,7 +14,6 @@ const BYPASS_COURSE_EMAILS = new Set([
 
 export default function CourseSignupPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [courseName, setCourseName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -39,15 +37,14 @@ export default function CourseSignupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
-      if (data.session) {
-        // Server verified OTP and returned a live session — set it locally.
-        // No navigation through Supabase domain needed (avoids Chrome bounce tracking).
-        await supabase.auth.setSession(data.session);
+      if (data.ready) {
+        // Server has set session cookies on the response — navigating now
+        // will include those cookies so the dashboard's auth check succeeds.
         window.location.replace("/course-dashboard");
         return;
       }
 
-      throw new Error("No session returned from server.");
+      throw new Error("Sign-in did not complete.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createClient as createServerSupabase } from "@/utils/supabase/server";
 
 const BYPASS_GOLFERS: Record<string, { name: string; phone: string }> = {
   "eo@rubegolf.com":         { name: "Ed",      phone: "1234543454" },
@@ -165,13 +166,24 @@ export async function POST(request: NextRequest) {
       });
 
       if (!verifyErr && verifyData?.session) {
+        // Set session cookies server-side via the @supabase/ssr server client —
+        // this is the reliable way to establish a session that both server and
+        // browser code will see on the next request (avoids browser-side
+        // setSession timing/storage issues).
+        const serverSupabase = await createServerSupabase();
+        const { error: setSessionErr } = await serverSupabase.auth.setSession({
+          access_token: verifyData.session.access_token,
+          refresh_token: verifyData.session.refresh_token,
+        });
+
+        if (setSessionErr) {
+          console.error("dev-signin: setSession on server failed:", setSessionErr.message);
+          return NextResponse.json({ error: "Failed to persist session." }, { status: 500 });
+        }
+
         return NextResponse.json({
           ready: true,
           isCourse: !!course,
-          session: {
-            access_token: verifyData.session.access_token,
-            refresh_token: verifyData.session.refresh_token,
-          },
         });
       }
 

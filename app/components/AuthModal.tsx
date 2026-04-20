@@ -71,22 +71,19 @@ export default function AuthModal({ open, onClose, onSuccess }: AuthModalProps) 
 
       saveToStorage(name.trim(), emailVal.trim(), phone.trim());
 
-      if (data.session) {
-        // Server verified OTP and returned a live session — set it locally.
-        // No navigation through Supabase domain needed (avoids Chrome bounce tracking).
-        const supabase = createClient();
-        await supabase.auth.setSession(data.session);
+      if (data.ready) {
+        // Server has set session cookies on the response — a full reload
+        // (via location.replace) picks up the cookie so both server and
+        // browser code see an authenticated session immediately.
         if (data.isCourse) {
           window.location.replace("/course-dashboard");
         } else {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) onSuccess(user.id);
-          else window.location.replace("/");
+          window.location.replace("/");
         }
         return;
       }
 
-      throw new Error("No session returned from server.");
+      throw new Error("Sign-in did not complete.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
