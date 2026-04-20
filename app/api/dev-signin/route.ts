@@ -95,13 +95,17 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Step 3: Upsert course_accounts (course logins only) ───────────────
+  // Admin client bypasses RLS. We query ALL rows for this email (the table
+  // has no unique constraint on email, so past signup attempts may have
+  // created duplicates), keep one, delete the rest, and claim it for userId.
+  // We then verify the final state — if anything went sideways we fail loud
+  // rather than returning a session that will bounce at /course-dashboard.
   if (course) {
     try {
-      const { data: existing, error: selectErr } = await db
+      const { data: rows, error: selectErr } = await db
         .from("course_accounts")
-        .select("id")
-        .eq("email", lc)
-        .maybeSingle();
+        .select("id, user_id")
+        .eq("email", lc);
 
       if (selectErr) {
         return NextResponse.json(
@@ -110,7 +114,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      if (!existing) {
+      if (!rows || rows.length === 0) {
         const { error: insertErr } = await db.from("course_accounts").insert({
           user_id: userId,
           course_name: course.courseName,
@@ -126,9 +130,50 @@ export async function POST(request: NextRequest) {
           );
         }
       } else {
-        await db.from("course_accounts")
-          .update({ user_id: userId, status: "active" })
-          .eq("id", existing.id);
+        const [keep, ...dupes] = rows;
+        if (dupes.length > 0) {
+          const { error: delErr } = await db
+            .from("course_accounts")
+            .delete()
+            .in("id", dupes.map((d) => d.id));
+          if (delErr) console.warn("dev-signin: dupe cleanup failed:", delErr.message);
+        }
+
+        const { error: updateErr } = await db
+          .from("course_accounts")
+          .update({
+            user_id: userId,
+            status: "active",
+            course_name: course.courseName,
+            contact_name: course.name,
+            phone: course.phone,
+          })
+          .eq("id", keep.id);
+        if (updateErr) {
+          return NextResponse.json(
+            { error: `course_accounts update failed: ${updateErr.message}` },
+            { status: 500 }
+          );
+        }
+      }
+
+      // Verify: row must exist with user_id=userId
+      const { data: verify, error: verifyErr } = await db
+        .from("course_accounts")
+        .select("id")
+        .eq("email", lc)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (verifyErr || !verify) {
+        console.error(
+          "dev-signin: course_accounts claim verify failed",
+          { email: lc, userId, verifyErr: verifyErr?.message }
+        );
+        return NextResponse.json(
+          { error: `course_accounts not claimed: ${verifyErr?.message ?? "row missing after upsert"}` },
+          { status: 500 }
+        );
       }
     } catch (err) {
       return NextResponse.json(
@@ -166,10 +211,25 @@ export async function POST(request: NextRequest) {
       });
 
       if (!verifyErr && verifyData?.session) {
+        // Sanity check: the user id in the issued session must match the
+        // userId we used when upserting course_accounts. If they diverge,
+        // the dashboard's auth.uid() won't match the row we just claimed
+        // and /api/course/me will return null → infinite signup loop.
+        const sessionUserId = verifyData.session.user?.id;
+        if (sessionUserId && sessionUserId !== userId) {
+          console.error(
+            "dev-signin: session user id diverged from upsert target",
+            { upsertUserId: userId, sessionUserId }
+          );
+          return NextResponse.json(
+            { error: `User id mismatch: ${userId} vs ${sessionUserId}` },
+            { status: 500 }
+          );
+        }
+
         // Set session cookies server-side via the @supabase/ssr server client —
-        // this is the reliable way to establish a session that both server and
-        // browser code will see on the next request (avoids browser-side
-        // setSession timing/storage issues).
+        // writes Set-Cookie so both server and browser code see the session
+        // on the next request.
         const serverSupabase = await createServerSupabase();
         const { error: setSessionErr } = await serverSupabase.auth.setSession({
           access_token: verifyData.session.access_token,
