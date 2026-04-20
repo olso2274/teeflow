@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
           );
         }
       } else {
-        const [keep, ...dupes] = rows;
+        const [keep, ...dupes] = rows as Array<{ id: string; user_id: string | null }>;
         if (dupes.length > 0) {
           const { error: delErr } = await db
             .from("course_accounts")
