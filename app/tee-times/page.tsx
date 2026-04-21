@@ -50,6 +50,8 @@ interface TeeTimeResult {
   special_note?: string | null;
   is_last_minute?: boolean;
   duration_minutes?: number;
+  // course_account_id present when the tee time was posted directly by a course
+  course_account_id?: string;
 }
 
 type SortMode = "time" | "price" | "distance";
@@ -662,9 +664,19 @@ Found on RubeGolf: www.rubegolf.com`;
       {/* Header band */}
       <div className="flex items-start justify-between bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-3.5">
         <div className="min-w-0 flex-1">
-          <h3 className="truncate font-semibold text-gray-900 text-sm">
-            {teeTime.course?.name}
-          </h3>
+          {teeTime.course_account_id ? (
+            <a
+              href={`/course/${teeTime.course_account_id}`}
+              className="truncate font-semibold text-gray-900 text-sm hover:text-primary transition block"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {teeTime.course?.name}
+            </a>
+          ) : (
+            <h3 className="truncate font-semibold text-gray-900 text-sm">
+              {teeTime.course?.name}
+            </h3>
+          )}
           {teeTime.course?.address && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-400 truncate">
               📍 {teeTime.course.address}

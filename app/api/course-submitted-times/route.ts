@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
         status: "available",
         booking_url: bookingUrl,
         course_posted: true,
+        course_account_id: t.course_account_id,
         special_note: t.special_note ?? null,
         is_last_minute: t.is_last_minute,
       };

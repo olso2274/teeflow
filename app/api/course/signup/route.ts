@@ -3,10 +3,13 @@ import { createClient } from "@/utils/supabase/server";
 
 export async function POST(request: NextRequest) {
   try {
-    const { courseName, contactName, email, phone } = await request.json();
+    const { courseName, contactName, email, phone, websiteUrl } = await request.json();
 
     if (!courseName?.trim() || !contactName?.trim() || !email?.trim()) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    }
+    if (websiteUrl && !/^https?:\/\/.+/.test(websiteUrl.trim())) {
+      return NextResponse.json({ error: "Website URL must start with http:// or https://" }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -35,7 +38,8 @@ export async function POST(request: NextRequest) {
       course_name: courseName.trim(),
       contact_name: contactName.trim(),
       email: email.trim().toLowerCase(),
-      phone: phone?.trim() ?? null,
+      phone: phone?.trim() || null,
+      website_url: websiteUrl?.trim() || null,
       status: "active",
     });
 
