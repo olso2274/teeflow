@@ -183,11 +183,19 @@ export default function EmbedPage() {
                       {t.special_note && (
                         <p className="text-[11px] text-amber-700 italic mb-2">&ldquo;{t.special_note}&rdquo;</p>
                       )}
-                      {phoneClean && remaining > 0 && (
-                        <a href={`tel:${phoneClean}`}
-                          className="flex items-center justify-center gap-1 rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition">
-                          <Phone className="h-3 w-3" /> Call to Book
-                        </a>
+                      {remaining > 0 && (
+                        <div className="flex gap-1.5">
+                          {phoneClean && (
+                            <a href={`tel:${phoneClean}`}
+                              className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-amber-200 bg-amber-50 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition">
+                              <Phone className="h-3 w-3" /> Call
+                            </a>
+                          )}
+                          <a href={`${fullPageUrl}?book=${t.id}`} target="_blank" rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition">
+                            Reserve
+                          </a>
+                        </div>
                       )}
                     </div>
                   );
@@ -356,18 +364,19 @@ export default function EmbedPage() {
                             <p className="mt-1 text-[11px] text-gray-400 italic truncate">&ldquo;{t.special_note}&rdquo;</p>
                           )}
                         </div>
-                        <div className="flex-shrink-0">
-                          {phoneClean && remaining > 0 ? (
+                        <div className="flex-shrink-0 flex flex-col gap-1.5">
+                          {phoneClean && remaining > 0 && (
                             <a href={`tel:${phoneClean}`}
-                              className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600 transition whitespace-nowrap">
+                              className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 transition whitespace-nowrap">
                               <Phone className="h-3 w-3" /> Call
                             </a>
-                          ) : profile.website_url && remaining > 0 ? (
-                            <a href={profile.website_url} target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600 transition whitespace-nowrap">
-                              <Globe className="h-3 w-3" /> Book
+                          )}
+                          {remaining > 0 && (
+                            <a href={`${fullPageUrl}?book=${t.id}`} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-emerald-600 transition whitespace-nowrap">
+                              Reserve
                             </a>
-                          ) : null}
+                          )}
                         </div>
                       </div>
                     );

@@ -53,6 +53,16 @@ interface EditState {
   is_last_minute: boolean;
 }
 
+interface TeeTimeBooking {
+  id: string;
+  tee_time_id: string;
+  golfer_name: string;
+  golfer_email: string;
+  golfer_phone: string;
+  num_golfers: number;
+  status: string;
+}
+
 type PostMode = "lastminute" | "future" | null;
 type Tab = "times" | "profile";
 
@@ -110,6 +120,8 @@ export default function CourseDashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("times");
   const [shareToast, setShareToast] = useState(false);
   const [embedCopied, setEmbedCopied] = useState(false);
+  const [bookings, setBookings] = useState<TeeTimeBooking[]>([]);
+  const [expandedBookings, setExpandedBookings] = useState<Set<string>>(new Set());
 
   // Tee-time post form
   const [date, setDate] = useState(format(addDays(new Date(), 1), "yyyy-MM-dd"));
@@ -171,6 +183,14 @@ export default function CourseDashboardPage() {
     }
   }, []);
 
+  const loadBookings = useCallback(async () => {
+    const res = await fetch("/api/course/bookings");
+    if (res.ok) {
+      const data = await res.json();
+      setBookings(data.bookings ?? []);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
@@ -195,6 +215,7 @@ export default function CourseDashboardPage() {
         setLoading(false);
         loadTimes();
         loadStaffEmails();
+        loadBookings();
 
         // Restore template
         const tmpl = loadTemplate();
@@ -888,6 +909,47 @@ export default function CourseDashboardPage() {
                                           />
                                         </div>
                                       </div>
+
+                                      {/* Online bookings for this slot */}
+                                      {(() => {
+                                        const slotBookings = bookings.filter((b) => b.tee_time_id === t.id);
+                                        if (slotBookings.length === 0) return null;
+                                        const isExpanded = expandedBookings.has(t.id);
+                                        return (
+                                          <div className="mt-2">
+                                            <button
+                                              onClick={() => setExpandedBookings((prev) => {
+                                                const next = new Set(prev);
+                                                if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
+                                                return next;
+                                              })}
+                                              className="flex items-center gap-1.5 text-[10px] font-semibold text-primary hover:text-primary/80 transition"
+                                            >
+                                              <Users className="h-3 w-3" />
+                                              {slotBookings.reduce((s, b) => s + b.num_golfers, 0)} online reservation{slotBookings.length !== 1 ? "s" : ""}
+                                              <span className="text-gray-400">{isExpanded ? "▲" : "▼"}</span>
+                                            </button>
+                                            <AnimatePresence>
+                                              {isExpanded && (
+                                                <motion.div
+                                                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                                                  className="mt-1.5 space-y-1.5 overflow-hidden"
+                                                >
+                                                  {slotBookings.map((b) => {
+                                                    const names = [b.golfer_name, ...Array.from({ length: b.num_golfers - 1 }, (_, i) => `Guest ${i + 1}`)];
+                                                    return (
+                                                      <div key={b.id} className="rounded-lg bg-primary/5 border border-primary/10 px-3 py-2">
+                                                        <p className="text-[11px] font-semibold text-gray-800">{names.join(", ")}</p>
+                                                        <p className="text-[10px] text-gray-500 mt-0.5">{b.golfer_email} · {b.golfer_phone}</p>
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </motion.div>
+                                              )}
+                                            </AnimatePresence>
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
 
                                     {/* 3-dot menu */}
