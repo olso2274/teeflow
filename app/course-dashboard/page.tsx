@@ -753,7 +753,7 @@ export default function CourseDashboardPage() {
                           return (
                             <motion.div key={t.id}
                               initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                              className="rounded-xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+                              className="rounded-xl bg-white border border-gray-100 shadow-sm">
 
                               {isEditing && editState ? (
                                 /* ── Inline edit mode ── */
