@@ -10,7 +10,7 @@ function adminClient() {
   });
 }
 
-async function getAuthUserAndAccount(request: NextRequest) {
+async function getAuthUserAndAccount(_request: NextRequest) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (!user || authError) return { user: null, account: null };
