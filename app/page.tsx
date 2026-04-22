@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
 import { useRouter } from "next/navigation";
-import { LogOut, User, MapPin, Zap, MousePointerClick, Clock, Users, ArrowRight } from "lucide-react";
+import { LogOut, User, MapPin, Zap, MousePointerClick, Clock, Users, ArrowRight, Phone } from "lucide-react";
 import SearchForm from "./components/SearchForm";
 import AuthModal from "./components/AuthModal";
 import { createClient } from "@/utils/supabase/client";
@@ -17,12 +17,15 @@ interface CurrentUser {
 
 interface LastMinuteOpening {
   id: string;
+  course_account_id: string | null;
   course_name: string;
   course_address: string | null;
   tee_time: string;
   spots_available: number;
+  spots_booked: number;
   price_cents: number | null;
   special_note: string | null;
+  phone: string | null;
 }
 
 export default function Home() {
@@ -286,33 +289,56 @@ export default function Home() {
                 const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
                 const timeLabel = `${h12}:${mStr} ${ampm}`;
                 const price = o.price_cents ? `$${(o.price_cents / 100).toFixed(0)}` : null;
+                const remaining = o.spots_available - (o.spots_booked ?? 0);
+                const phoneClean = o.phone?.replace(/\D/g, "") ?? null;
 
                 return (
                   <div
                     key={o.id}
-                    className="rounded-xl bg-white border border-amber-100 px-4 py-3 shadow-sm"
+                    className="rounded-xl bg-white border border-amber-100 px-4 py-3 shadow-sm flex flex-col gap-2"
                   >
-                    <p className="font-semibold text-gray-900 text-sm truncate">{o.course_name}</p>
-                    {o.course_address && (
-                      <p className="text-xs text-gray-400 truncate mt-0.5">📍 {o.course_address}</p>
-                    )}
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-3 text-sm text-gray-600">
-                        <span className="flex items-center gap-1 font-semibold text-gray-900">
+                    <div>
+                      {o.course_account_id ? (
+                        <a href={`/course/${o.course_account_id}`}
+                          className="font-semibold text-gray-900 text-sm truncate block hover:text-primary transition">
+                          {o.course_name}
+                        </a>
+                      ) : (
+                        <p className="font-semibold text-gray-900 text-sm truncate">{o.course_name}</p>
+                      )}
+                      {o.course_address && (
+                        <p className="text-xs text-gray-400 truncate mt-0.5">📍 {o.course_address}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="flex items-center gap-1 font-semibold text-gray-900 text-sm">
                           <Clock className="h-3.5 w-3.5 text-amber-500" />
                           {timeLabel}
                         </span>
                         <span className="flex items-center gap-1 text-xs text-gray-500">
                           <Users className="h-3 w-3" />
-                          {o.spots_available}
+                          {remaining > 0 ? `${remaining} spot${remaining !== 1 ? "s" : ""}` : "Full"}
                         </span>
                       </div>
                       {price && <span className="text-sm font-bold text-primary">{price}</span>}
                     </div>
                     {o.special_note && (
-                      <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 truncate">
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1 truncate">
                         {o.special_note}
                       </p>
+                    )}
+                    {phoneClean && remaining > 0 && (
+                      <a href={`tel:${phoneClean}`}
+                        className="mt-1 flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition">
+                        <Phone className="h-3.5 w-3.5" /> Call to Book
+                      </a>
+                    )}
+                    {!phoneClean && o.course_account_id && remaining > 0 && (
+                      <a href={`/course/${o.course_account_id}`}
+                        className="mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition">
+                        View Course
+                      </a>
                     )}
                   </div>
                 );

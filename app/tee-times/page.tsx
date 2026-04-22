@@ -22,6 +22,7 @@ import {
   Share2,
   Flag,
   Phone,
+  Zap,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
@@ -189,6 +190,8 @@ function TeeTimesContent() {
   }, [fetchTeeTimes]);
 
   /* ── Derived data ── */
+  const isSearchingToday = date === format(new Date(), "yyyy-MM-dd");
+
   const courses = useMemo(() => {
     const map = new Map<string, string>();
     teeTimes.forEach((t) => {
@@ -196,6 +199,12 @@ function TeeTimesContent() {
     });
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [teeTimes]);
+
+  // Last-minute times (course-posted, today only) — featured above main grid
+  const featuredLastMinute = useMemo(() => {
+    if (!isSearchingToday) return [];
+    return teeTimes.filter((t) => t.course_posted && t.is_last_minute);
+  }, [teeTimes, isSearchingToday]);
 
   const sortedFiltered = useMemo(() => {
     let result =
@@ -482,6 +491,76 @@ function TeeTimesContent() {
           <div className="mb-6 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
           </div>
+        )}
+
+        {/* ── ⚡ Featured Last-Minute Openings (today only) ── */}
+        {!loading && featuredLastMinute.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 rounded-2xl bg-amber-50 border border-amber-200 p-5"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                <Zap className="h-4 w-4 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-amber-900">⚡ Last-Minute Openings Today</h2>
+                <p className="text-xs text-amber-600">Posted directly by courses — grab one now</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {featuredLastMinute.map((tt) => {
+                const timePart = tt.start_time.split("T")[1] ?? "";
+                const [hStr, mStr] = timePart.split(":");
+                const h = parseInt(hStr);
+                const ampm = h >= 12 ? "PM" : "AM";
+                const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                const timeLabel = `${h12}:${mStr} ${ampm}`;
+                const price = tt.price_cents ? `$${(tt.price_cents / 100).toFixed(0)}` : null;
+                const rawPhone = tt.booking_url?.startsWith("tel:") ? tt.booking_url.slice(4) : null;
+                const displayPhone = rawPhone?.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3") ?? null;
+
+                return (
+                  <div key={tt.id} className="rounded-xl bg-white border border-amber-100 px-4 py-3 shadow-sm flex flex-col gap-2">
+                    <div>
+                      {tt.course_account_id ? (
+                        <a href={`/course/${tt.course_account_id}`}
+                          className="font-semibold text-gray-900 text-sm truncate block hover:text-primary transition">
+                          {tt.course?.name}
+                        </a>
+                      ) : (
+                        <p className="font-semibold text-gray-900 text-sm truncate">{tt.course?.name}</p>
+                      )}
+                      {tt.course?.address && (
+                        <p className="text-xs text-gray-400 truncate mt-0.5">📍 {tt.course.address}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 font-bold text-gray-900">
+                        <Clock className="h-3.5 w-3.5 text-amber-500" />
+                        {timeLabel}
+                      </span>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{tt.players_needed} spot{tt.players_needed !== 1 ? "s" : ""}</span>
+                        {price && <span className="font-bold text-primary">{price}</span>}
+                      </div>
+                    </div>
+                    {tt.special_note && (
+                      <p className="text-xs text-amber-700 italic">{tt.special_note}</p>
+                    )}
+                    {rawPhone && tt.players_needed > 0 && (
+                      <a href={tt.booking_url}
+                        className="flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition">
+                        <Phone className="h-3.5 w-3.5" />
+                        {displayPhone ? `Call ${displayPhone}` : "Call to Book"}
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
         )}
 
         {/* ── Results ── */}
