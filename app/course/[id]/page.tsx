@@ -14,7 +14,7 @@ import {
   LogIn, CheckCircle2,
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
-import BookingModal, { type BookingSlot, type BookingUser } from "@/app/components/BookingModal";
+import BookingModal, { type BookingUser } from "@/app/components/BookingModal";
 import AuthModal from "@/app/components/AuthModal";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
