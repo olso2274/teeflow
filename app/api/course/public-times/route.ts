@@ -15,9 +15,10 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await admin
     .from("course_tee_times")
-    .select("id, date, tee_time, spots_available, price_cents, special_note, is_last_minute")
+    .select("id, date, tee_time, spots_available, spots_booked, status, price_cents, special_note, is_last_minute")
     .eq("course_account_id", id)
     .eq("is_active", true)
+    .neq("status", "cancelled")
     .gte("date", today)
     .order("date", { ascending: true })
     .order("tee_time", { ascending: true });

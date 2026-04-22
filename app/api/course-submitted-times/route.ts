@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       .select("*, course_accounts(phone)")
       .eq("date", date)
       .eq("is_active", true)
+      .neq("status", "cancelled")
       .order("tee_time", { ascending: true });
 
     if (error) {
@@ -52,9 +53,9 @@ export async function GET(request: NextRequest) {
           booking_url: bookingUrl,
         },
         start_time: `${t.date}T${t.tee_time}`,
-        players_needed: t.spots_available,
+        players_needed: Math.max(0, (t.spots_available ?? 0) - (t.spots_booked ?? 0)),
         price_cents: t.price_cents ?? null,
-        status: "available",
+        status: t.status === "full" ? "full" : "available",
         booking_url: bookingUrl,
         course_posted: true,
         course_account_id: t.course_account_id,
