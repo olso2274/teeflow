@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, Mail, CheckCircle2, Flag, Zap } from "lucide-react";
+import { ArrowLeft, Mail, CheckCircle2, Flag, Zap, Globe } from "lucide-react";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
 
 const BYPASS_COURSE_EMAILS = new Set([
   "eo18@rubegolf.com",
@@ -15,12 +14,12 @@ const BYPASS_COURSE_EMAILS = new Set([
 
 export default function CourseSignupPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [courseName, setCourseName] = useState("");
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [isBypass, setIsBypass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,15 +38,14 @@ export default function CourseSignupPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Dev sign-in failed.");
 
-      if (data.session) {
-        // Server verified OTP and returned a live session — set it locally.
-        // No navigation through Supabase domain needed (avoids Chrome bounce tracking).
-        await supabase.auth.setSession(data.session);
+      if (data.ready) {
+        // Server has set session cookies on the response — navigating now
+        // will include those cookies so the dashboard's auth check succeeds.
         window.location.replace("/course-dashboard");
         return;
       }
 
-      throw new Error("No session returned from server.");
+      throw new Error("Sign-in did not complete.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -64,7 +62,7 @@ export default function CourseSignupPage() {
       const res = await fetch("/api/course/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courseName, contactName, email, phone }),
+        body: JSON.stringify({ courseName, contactName, email, phone, websiteUrl }),
       });
       const data = await res.json();
 
@@ -168,17 +166,31 @@ export default function CourseSignupPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Phone <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(612) 555-0123"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Phone <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="(612) 555-0123"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                      <Globe className="h-3.5 w-3.5" /> Website <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={websiteUrl}
+                      onChange={(e) => setWebsiteUrl(e.target.value)}
+                      placeholder="https://braemar.com"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                    />
+                  </div>
                 </div>
 
                 {error && (
