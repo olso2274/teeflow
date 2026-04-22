@@ -9,7 +9,7 @@ import {
   addMonths, subMonths, startOfDay, parseISO,
 } from "date-fns";
 import {
-  Phone, Globe, Clock, Users, DollarSign,
+  Phone, Clock, Users, DollarSign,
   ChevronLeft, ChevronRight, Zap, ExternalLink, Calendar, Flag,
 } from "lucide-react";
 
