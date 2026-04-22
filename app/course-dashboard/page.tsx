@@ -469,13 +469,15 @@ export default function CourseDashboardPage() {
                 <Share2 className="h-3.5 w-3.5" /> Share
               </button>
             )}
-            <button
-              onClick={() => router.push("/")}
+            <a
+              href={`/course/${account?.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="hidden sm:flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition"
             >
               <ExternalLink className="h-3.5 w-3.5" />
               View site
-            </button>
+            </a>
             <button
               onClick={async () => { await supabase.auth.signOut(); router.push("/"); }}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition"
