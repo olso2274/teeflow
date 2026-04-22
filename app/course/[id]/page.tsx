@@ -297,7 +297,7 @@ function CourseProfileContent() {
       <header className="glass-nav sticky top-0 z-40">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.back()}
+            <button onClick={() => window.history.length > 1 ? router.back() : router.push("/")}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary transition">
               <ArrowLeft className="h-4 w-4" />
               <span className="hidden sm:inline">Back</span>
