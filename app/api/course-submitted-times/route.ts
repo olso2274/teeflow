@@ -12,9 +12,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ times: [] });
     }
 
+    // Use service-role key so the course_accounts join (for phone) isn't
+    // blocked by RLS — course_tee_times are intentionally public data.
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
     // Join course_accounts to get phone number for the "Call Course" button

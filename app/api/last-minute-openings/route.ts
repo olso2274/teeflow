@@ -3,9 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function GET() {
   try {
+    // Service-role key so the course_accounts join (for phone) isn't
+    // blocked by RLS — last-minute openings are intentionally public data.
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
     const today = new Date().toISOString().split("T")[0];
 
